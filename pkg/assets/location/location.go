@@ -12,12 +12,9 @@ import (
 	"io"
 )
 
-// magicStr is the fixed file header (22 chars + NUL = 23 bytes) at the
-// start of every location.* file.
+// magicStr is the fixed file header (22 chars + NUL = 23 bytes) at the start of
+// every location.* file.
 const magicStr = "Divinity LocationsV1.0\x00"
-
-// Magic returns a fresh copy of the file header bytes.
-func Magic() []byte { return []byte(magicStr) }
 
 // SubTag identifies the variant of the file.
 type SubTag string
@@ -50,15 +47,14 @@ var (
 
 // Decode parses a location.* file from r.
 func Decode(r io.Reader) (*File, error) {
-	br := bufReader(r)
 	magic := make([]byte, len(magicStr))
-	if _, err := io.ReadFull(br, magic); err != nil {
+	if _, err := io.ReadFull(r, magic); err != nil {
 		return nil, fmt.Errorf("location: read magic: %w", err)
 	}
 	if !bytes.Equal(magic, []byte(magicStr)) {
 		return nil, fmt.Errorf("%w: have %q want %q", ErrBadMagic, magic, magicStr)
 	}
-	tag, err := readNulString(br)
+	tag, err := readNulString(r)
 	if err != nil {
 		return nil, fmt.Errorf("location: sub-tag: %w", err)
 	}
@@ -70,19 +66,19 @@ func Decode(r io.Reader) (*File, error) {
 	}
 
 	var count uint32
-	if err := binary.Read(br, binary.LittleEndian, &count); err != nil {
+	if err := binary.Read(r, binary.LittleEndian, &count); err != nil {
 		return nil, fmt.Errorf("location: count: %w", err)
 	}
 	records := make([]Record, count)
 	for i := range records {
 		var fields [3]uint32
-		if err := binary.Read(br, binary.LittleEndian, &fields); err != nil {
+		if err := binary.Read(r, binary.LittleEndian, &fields); err != nil {
 			return nil, fmt.Errorf("location: record %d fields: %w", i, err)
 		}
 		records[i].V0 = fields[0]
 		records[i].V1 = fields[1]
 		records[i].V3 = fields[2]
-		name, err := readNulString(br)
+		name, err := readNulString(r)
 		if err != nil {
 			return nil, fmt.Errorf("location: record %d name: %w", i, err)
 		}
@@ -118,9 +114,9 @@ func Encode(w io.Writer, f *File) error {
 	return nil
 }
 
-// readNulString reads a u32 length (counting the trailing NUL) followed by
-// that many bytes; returns the string with the NUL stripped. Length 0
-// is permitted and returns "".
+// readNulString reads a u32 length (counting the trailing NUL) followed by that
+// many bytes.
+// Returns the string with the NUL stripped.
 func readNulString(r io.Reader) (string, error) {
 	var n uint32
 	if err := binary.Read(r, binary.LittleEndian, &n); err != nil {
@@ -153,29 +149,4 @@ func writeNulString(w io.Writer, s string) error {
 	}
 	_, err := w.Write([]byte{0})
 	return err
-}
-
-// bufReader wraps r in a buffered reader unless it already supports byte
-// reads efficiently. binary.Read on an unbuffered file does many tiny
-// syscalls; this avoids that.
-func bufReader(r io.Reader) io.Reader {
-	type byteReader interface {
-		io.Reader
-		ReadByte() (byte, error)
-	}
-	if _, ok := r.(byteReader); ok {
-		return r
-	}
-	return &readerWrap{r: r}
-}
-
-type readerWrap struct {
-	r   io.Reader
-	buf [1]byte
-}
-
-func (b *readerWrap) Read(p []byte) (int, error) { return b.r.Read(p) }
-func (b *readerWrap) ReadByte() (byte, error) {
-	_, err := io.ReadFull(b.r, b.buf[:])
-	return b.buf[0], err
 }

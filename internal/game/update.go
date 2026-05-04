@@ -1,0 +1,200 @@
+// SPDX-License-Identifier: GPL-3.0-only
+
+package game
+
+import (
+	"log"
+	"math"
+
+	"github.com/hajimehoshi/ebiten/v2"
+	"github.com/hajimehoshi/ebiten/v2/inpututil"
+)
+
+var regionKeys = []ebiten.Key{
+	ebiten.Key0, ebiten.Key1, ebiten.Key2, ebiten.Key3, ebiten.Key4,
+}
+
+func (g *Game) Update() error {
+	if ebiten.IsKeyPressed(ebiten.KeyEscape) {
+		return ebiten.Termination
+	}
+	for n, k := range regionKeys {
+		if ebiten.IsKeyPressed(k) && g.region != n {
+			if err := g.loadRegion(n); err != nil {
+				log.Printf("region %d: %v", n, err)
+			}
+			break
+		}
+	}
+	if inpututil.IsKeyJustPressed(ebiten.KeyF7) {
+		g.showFloors = !g.showFloors
+	}
+	if inpututil.IsKeyJustPressed(ebiten.KeyF8) {
+		g.showObjects = !g.showObjects
+	}
+	if inpututil.IsKeyJustPressed(ebiten.KeyF12) {
+		g.wantShot = true
+	}
+	if inpututil.IsKeyJustPressed(ebiten.KeyF9) {
+		g.cameraFollow = !g.cameraFollow
+		if g.cameraFollow {
+			g.camX, g.camY = g.player.CameraTarget()
+		}
+	}
+	// [ / ] cycle through anim slots.  \ disables the override
+	// and returns to auto walk/idle.
+	if inpututil.IsKeyJustPressed(ebiten.KeyBracketLeft) {
+		s := g.player.ForceSlot
+		if s < 0 {
+			s = g.player.AnimSlot
+		}
+		s--
+		if s < 0 {
+			s = 18
+		}
+		g.player.ForceSlot = s
+	}
+	if inpututil.IsKeyJustPressed(ebiten.KeyBracketRight) {
+		s := g.player.ForceSlot
+		if s < 0 {
+			s = g.player.AnimSlot
+		}
+		s++
+		if s > 18 {
+			s = 0
+		}
+		g.player.ForceSlot = s
+	}
+	if inpututil.IsKeyJustPressed(ebiten.KeyBackslash) {
+		g.player.ForceSlot = -1
+	}
+	// Movement speed in world pixels per tick.  Engine-traced:
+	// hero base walk = 2 px/frame in 1× iso projection (FUN_004a3*).
+	// 4 px feels right at the game's typical zoom; refine once
+	// the actual move-tick cadence is implemented.
+	speed := 4.0
+	if ebiten.IsKeyPressed(ebiten.KeyShift) {
+		speed *= 4
+	}
+
+	// Left-click sets a click-to-walk destination at the world point
+	// under the cursor.  The hero then walks in a straight line each
+	// tick until arrival or a collision.  WASD overrides and cancels
+	// the destination.
+	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
+		mx, my := ebiten.CursorPosition()
+		// Inverse of worldToScreen.
+		wx := (float64(mx)-float64(g.winW)/2.0)/g.zoom + g.camX
+		wy := (float64(my)-float64(g.winH)/2.0)/g.zoom + g.camY
+		g.destX, g.destY = wx, wy
+		g.hasDest = true
+	}
+
+	dx, dy := 0.0, 0.0
+	wasdActive := false
+	if ebiten.IsKeyPressed(ebiten.KeyW) || ebiten.IsKeyPressed(ebiten.KeyArrowUp) {
+		dy -= speed
+		wasdActive = true
+	}
+	if ebiten.IsKeyPressed(ebiten.KeyS) || ebiten.IsKeyPressed(ebiten.KeyArrowDown) {
+		dy += speed
+		wasdActive = true
+	}
+	if ebiten.IsKeyPressed(ebiten.KeyA) || ebiten.IsKeyPressed(ebiten.KeyArrowLeft) {
+		dx -= speed
+		wasdActive = true
+	}
+	if ebiten.IsKeyPressed(ebiten.KeyD) || ebiten.IsKeyPressed(ebiten.KeyArrowRight) {
+		dx += speed
+		wasdActive = true
+	}
+	if wasdActive {
+		g.hasDest = false // any keyboard input cancels the click target
+	} else if g.hasDest {
+		ddx := g.destX - g.player.X
+		ddy := g.destY - g.player.Y
+		dist := math.Hypot(ddx, ddy)
+		if dist <= speed {
+			// Arrived (within one step), snap and stop.
+			dx, dy = ddx, ddy
+			g.hasDest = false
+		} else {
+			dx = ddx / dist * speed
+			dy = ddy / dist * speed
+		}
+	}
+	if g.cameraFollow {
+		// Separate-axis sliding: try X then Y, reject either if it would put
+		// the player into a collider.
+		// Lets the player slide along walls instead of getting stuck on the
+		// corner.
+		nx := clamp(g.player.X+dx, 0, worldXPx)
+		ny := clamp(g.player.Y+dy, 0, worldYPx)
+		if g.playerBlocked(nx, g.player.Y) {
+			nx = g.player.X
+		}
+		if g.playerBlocked(nx, ny) {
+			ny = g.player.Y
+		}
+		dx = nx - g.player.X
+		dy = ny - g.player.Y
+		g.player.X = nx
+		g.player.Y = ny
+		g.camX, g.camY = g.player.CameraTarget()
+		// Cancel click-to-walk if we got fully blocked, no point thrashing on
+		// the wall. Pathfinding TBD.
+		if g.hasDest && dx == 0 && dy == 0 {
+			g.hasDest = false
+		}
+		g.player.Step(dx, dy)
+	} else {
+		// Free pan, slower at higher zoom for fine framing.
+		panSpeed := dx / g.zoom
+		panSpeedY := dy / g.zoom
+		g.camX = clamp(g.camX+panSpeed, 0, worldXPx)
+		g.camY = clamp(g.camY+panSpeedY, 0, worldYPx)
+	}
+	if _, scrollY := ebiten.Wheel(); scrollY != 0 {
+		g.zoom *= 1.0 + 0.1*scrollY
+		if g.zoom < 1.0/64.0 {
+			g.zoom = 1.0 / 64.0
+		}
+		if g.zoom > 4.0 {
+			g.zoom = 4.0
+		}
+	}
+	return nil
+}
+
+// playerBlocked reports whether the player's footprint (a small AABB centered
+// on (px, py)) overlaps any wall collider.
+// Uses the 64×64 grid bucket index, the player overlaps at most 4 buckets so
+// the per-tick cost is bounded by max-colliders-per-bucket.
+func (g *Game) playerBlocked(px, py float64) bool {
+	const half = 6 // hero footprint half-extent in world pixels
+	pb := aabb{X: int(px) - half, Y: int(py) - half, W: half * 2, H: half * 2}
+	minCX := pb.X / cellPx
+	maxCX := (pb.X + pb.W - 1) / cellPx
+	minCY := pb.Y / cellPx
+	maxCY := (pb.Y + pb.H - 1) / cellPx
+	for cy := minCY; cy <= maxCY; cy++ {
+		for cx := minCX; cx <= maxCX; cx++ {
+			for _, idx := range g.colliderGrid[cy*worldCellsX+cx] {
+				if pb.intersects(g.colliders[idx]) {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+func clamp(v, lo, hi float64) float64 {
+	if v < lo {
+		return lo
+	}
+	if v > hi {
+		return hi
+	}
+	return v
+}

@@ -6,9 +6,10 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
-	"reflect"
 	"testing"
 
+	"gotest.tools/v3/assert"
+	"gotest.tools/v3/assert/cmp"
 	"grono.dev/opendivine/internal/testutils"
 )
 
@@ -22,44 +23,30 @@ func TestRoundTrip(t *testing.T) {
 		},
 	}
 	var buf bytes.Buffer
-	if err := Encode(&buf, in); err != nil {
-		t.Fatalf("Encode: %v", err)
-	}
+	assert.NilError(t, Encode(&buf, in))
+
 	out, err := Decode(&buf)
-	if err != nil {
-		t.Fatalf("Decode: %v", err)
-	}
-	if !reflect.DeepEqual(in, out) {
-		t.Errorf("round trip mismatch:\n got %+v\n want %+v", out, in)
-	}
+	assert.NilError(t, err)
+	assert.Assert(t, cmp.DeepEqual(out, in))
 }
 
 func TestBadMagic(t *testing.T) {
 	_, err := Decode(bytes.NewReader([]byte("Not a Divinity file")))
-	if err == nil {
-		t.Fatal("expected error")
-	}
+	assert.Assert(t, cmp.Equal(err == nil, false))
 }
 
-// TestRealFile decodes the shipped global/location.000 from
-// $TEST_GAMEDATA_PATH and asserts header + record presence.
 func TestRealFile(t *testing.T) {
 	gamedata := testutils.TestGameData(t)
 	path := filepath.Join(gamedata, "global/location.000")
+
 	f, err := os.Open(path)
-	if err != nil {
-		t.Fatalf("open %s: %v", path, err)
-	}
+	assert.NilError(t, err)
 	defer f.Close()
+
 	parsed, err := Decode(f)
-	if err != nil {
-		t.Fatalf("Decode: %v", err)
-	}
+	assert.NilError(t, err)
+
 	t.Logf("tag=%s, %d records; first=%+v", parsed.Tag, len(parsed.Records), parsed.Records[0])
-	if parsed.Tag != SubTagStory {
-		t.Errorf("expected StoryV1.0, got %q", parsed.Tag)
-	}
-	if len(parsed.Records) == 0 {
-		t.Fatal("zero records")
-	}
+	assert.Check(t, cmp.Equal(parsed.Tag, SubTagStory))
+	assert.Assert(t, cmp.Equal(len(parsed.Records) > 0, true), "zero records")
 }

@@ -1,14 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // Package world reads Divine Divinity's world.x<n> partitions:
-// the per-region object-instance grid that also carries each cell's
-// floor-tile id and overlay-tile id in its 16-byte cell header.
+// - per-region object-instance grid that carries each cell's floor-tile id
+// - overlay-tile id in its 16-byte cell header.
 package world
 
 import (
 	"encoding/binary"
 	"fmt"
-	"io"
 )
 
 // Constants matching the engine's world layout.
@@ -47,14 +46,14 @@ type Object struct {
 	Layer       uint16 // 10-bit ord_kind low bits — painter's-algorithm key
 }
 
-// Walk decodes every populated cell in a world.x<n> file. cb receives
-// the cell coordinates (cellX/cellY in the engine's native units;
+// Walk decodes every populated cell in a world.x<n> file.
+// cb receives the cell coordinates (cellX/cellY in the engine's native units;
 // each cell is 64 world coord units wide) plus the parsed Cell.
 //
-// cellX / cellY are the engine's native coords matching the per-object
-// formula (xy_kind & 0x3f) + cellIdx * 0x40 / ((xy_kind >> 6) & 0x3f) +
-// sectorIdx * 0x40, so multiplying by CellPxStride / 64 = 1 keeps them
-// directly comparable with object positions.
+// cellX / cellY are the engine's native coords matching the per-object formula:
+// (xy_kind & 0x3f) + cellIdx * 0x40 / ((xy_kind >> 6) & 0x3f) + sectorIdx * 0x40
+// so multiplying by CellPxStride / 64 = 1 keeps them directly comparable with
+// object positions.
 func Walk(world []byte, cb func(cellX, cellY int, c Cell)) error {
 	if len(world) < 4*SectorCount {
 		return fmt.Errorf("world: file too short for offset table (%d bytes)", len(world))
@@ -121,26 +120,4 @@ func Walk(world []byte, cb func(cellX, cellY int, c Cell)) error {
 		}
 	}
 	return nil
-}
-
-// ReadAll loads a world partition entirely into memory and returns
-// every populated cell as a flat slice. Use Walk for streaming.
-type Populated struct {
-	X, Y int // sector-anchored cell coords (object positions add SubX/SubY)
-	Cell Cell
-}
-
-func ReadAll(r io.Reader) ([]Populated, error) {
-	buf, err := io.ReadAll(r)
-	if err != nil {
-		return nil, err
-	}
-	var out []Populated
-	err = Walk(buf, func(x, y int, c Cell) {
-		if c.FloorTileID == 0 && c.OverlayTile == -1 && c.ObjectCount == 0 {
-			return // empty cell
-		}
-		out = append(out, Populated{X: x, Y: y, Cell: c})
-	})
-	return out, err
 }

@@ -13,15 +13,15 @@ import (
 // RecordSize is the on-disk size of one collide record (= 16 bytes).
 const RecordSize = 16
 
-// Record is one 16-byte cube — the per-sprite cube/anchor entry that
-// pairs with CPacked sprite N at the same index. Fields confirmed
-// against div.exe (CUBE/Cube.cpp).
+// Record is one 16-byte cube - the per-sprite cube/anchor entry that pairs with
+// CPacked sprite N at the same index.
 //
-// AnchorX / AnchorY are the sprite-local pixel offset from the
-// sprite's top-left to the object's "ground point" (where the cube
-// rests on the floor).  The engine reads these in
-// FUN_00572100/0x00572100 and uses them to map world (X, Y) to the
-// sprite's draw position: top-left = (worldX - AnchorX, worldY - AnchorY).
+// AnchorX / AnchorY are the sprite-local pixel offset from the sprite's
+// top-left to the object's "ground point" (where the cube rests on the floor).
+//
+// The engine reads these in FUN_00572100/0x00572100 and uses them to map world
+// (X, Y) to the sprite's draw position: top-left = (worldX - AnchorX, worldY -
+// AnchorY).
 type Record struct {
 	AnchorX int16 // [0] sprite-relative X of the cube anchor / "foot"
 	AnchorY int16 // [1] sprite-relative Y of the cube anchor / "foot"
@@ -48,17 +48,18 @@ func Decode(r io.Reader) (*File, error) {
 		return nil, fmt.Errorf("collide: size %d is not a multiple of %d", len(all), RecordSize)
 	}
 	out := &File{Records: make([]Record, len(all)/RecordSize)}
+	le := binary.LittleEndian
 	for i := range out.Records {
 		off := i * RecordSize
 		r := &out.Records[i]
-		r.AnchorX = int16(binary.LittleEndian.Uint16(all[off:]))
-		r.AnchorY = int16(binary.LittleEndian.Uint16(all[off+2:]))
-		r.RtTimer = int16(binary.LittleEndian.Uint16(all[off+4:]))
-		r.XExtent = int16(binary.LittleEndian.Uint16(all[off+6:]))
-		r.ZHeight = int16(binary.LittleEndian.Uint16(all[off+8:]))
-		r.Width = int16(binary.LittleEndian.Uint16(all[off+10:]))
-		r.Type = int16(binary.LittleEndian.Uint16(all[off+12:]))
-		r.Flags = int16(binary.LittleEndian.Uint16(all[off+14:]))
+		r.AnchorX = int16(le.Uint16(all[off:]))
+		r.AnchorY = int16(le.Uint16(all[off+2:]))
+		r.RtTimer = int16(le.Uint16(all[off+4:]))
+		r.XExtent = int16(le.Uint16(all[off+6:]))
+		r.ZHeight = int16(le.Uint16(all[off+8:]))
+		r.Width = int16(le.Uint16(all[off+10:]))
+		r.Type = int16(le.Uint16(all[off+12:]))
+		r.Flags = int16(le.Uint16(all[off+14:]))
 	}
 	return out, nil
 }

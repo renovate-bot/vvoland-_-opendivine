@@ -7,23 +7,22 @@ import (
 	"path/filepath"
 	"testing"
 
+	"gotest.tools/v3/assert"
+	"gotest.tools/v3/assert/cmp"
 	"grono.dev/opendivine/internal/testutils"
 )
 
-// TestRealPartition walks the shipped main/startup/world.x0 from
-// $TEST_GAMEDATA_PATH.
 func TestRealPartition(t *testing.T) {
 	gamedata := testutils.TestGameData(t)
 	path := filepath.Join(gamedata, "main/startup/world.x0")
 	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read %s: %v", path, err)
-	}
+	assert.NilError(t, err)
+
 	cells, objects := 0, 0
 	withFloor := 0
 	withOverlay := 0
 	tileIDs := map[int16]int{}
-	if err := Walk(data, func(x, y int, c Cell) {
+	err = Walk(data, func(x, y int, c Cell) {
 		cells++
 		objects += int(c.ObjectCount)
 		if c.FloorTileID != 0 {
@@ -33,12 +32,10 @@ func TestRealPartition(t *testing.T) {
 			withOverlay++
 		}
 		tileIDs[c.FloorTileID]++
-	}); err != nil {
-		t.Fatalf("Walk: %v", err)
-	}
+	})
+	assert.NilError(t, err)
+
 	t.Logf("cells=%d, objects=%d, with floor=%d, with overlay=%d, distinct tile ids=%d",
 		cells, objects, withFloor, withOverlay, len(tileIDs))
-	if cells == 0 {
-		t.Fatal("no cells walked")
-	}
+	assert.Assert(t, cmp.Equal(cells > 0, true), "no cells walked")
 }

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
-// Package objects reads Divine Divinity's static\objects.000: the
-// global object catalogue (148-byte struct x 7208 entries, parallel
-// to CPacked imagelist 0).
+// Package objects reads Divine Divinity's static\objects.000:
+// the global object catalogue (148-byte struct x 7208 entries, parallel to
+// CPacked imagelist 0).
 package objects
 
 import (
@@ -15,8 +15,7 @@ import (
 // EntrySize is the on-disk stride.
 const EntrySize = 0x94
 
-// Static-behaviour bit indices in `Object.SBFlags`. Order taken from
-// the engine's CSV exporter at div.exe:0x00581520.
+// Static-behaviour bit indices in `Object.SBFlags`.
 const (
 	SBSleep             = 1 << 0
 	SBTransparent       = 1 << 1
@@ -64,13 +63,14 @@ type Object struct {
 	FloatingHighlightIndex uint32 // +0x54
 	FloatingPressedIndex   uint32 // +0x58
 	FloatingDisabledIndex  uint32 // +0x5c
-	// Sprite-local pixel coordinates of the object's ground / cube
-	// anchor.  The engine adds these to the object's world (X, Y) to
-	// produce the spatial-hash bucket key (FUN_00582890) and draws the
-	// sprite so this pixel sits at world (X, Y).  The 8 bytes at +0x60
-	// were previously documented as runtime-only padding — they are
-	// not: the +0x60..+0x63 pair is initialised to (-1, -1) for every
+
+	// Sprite-local pixel coordinates of the object's ground / cube anchor.
+	// The engine adds these to the object's world (X, Y) to produce the
+	// spatial-hash bucket key (FUN_00582890) and draws the sprite so this pixel
+	// sits at world (X, Y).
+	// The +0x60..+0x63 pair is initialised to (-1, -1) for every
 	// shipped entry, and +0x64/+0x66 carry the real anchor.
+
 	AnchorX            int16  // +0x64
 	AnchorY            int16  // +0x66
 	WeaponAnimation    uint32 // +0x68
@@ -106,35 +106,40 @@ func Decode(r io.Reader) (*Catalog, error) {
 	n := len(buf) / EntrySize
 	out := &Catalog{Entries: make([]Object, n)}
 	for i := range n {
-		base := i * EntrySize
-		o := &out.Entries[i]
-		o.FlagsA = binary.LittleEndian.Uint32(buf[base+0x00:])
-		copy(o.SubValues[:], buf[base+0x04:base+0x14])
-		o.Weight = binary.LittleEndian.Uint32(buf[base+0x14:])
-		o.AnimationIndex = int32(binary.LittleEndian.Uint32(buf[base+0x18:]))
-		o.SBFlags = binary.LittleEndian.Uint32(buf[base+0x1c:])
-		o.Name = readNulPadded(buf[base+0x20 : base+0x40])
-		o.ID = binary.LittleEndian.Uint32(buf[base+0x30:])
-		o.Class = binary.LittleEndian.Uint32(buf[base+0x34:])
-		o.BreakAnimationIndex = binary.LittleEndian.Uint32(buf[base+0x38:])
-		o.ClothingCode = readNulPadded(buf[base+0x3c : base+0x4c])
-		o.FloatingImageIndex = binary.LittleEndian.Uint32(buf[base+0x4c:])
-		o.FloatingListIndex = binary.LittleEndian.Uint32(buf[base+0x50:])
-		o.FloatingHighlightIndex = binary.LittleEndian.Uint32(buf[base+0x54:])
-		o.FloatingPressedIndex = binary.LittleEndian.Uint32(buf[base+0x58:])
-		o.FloatingDisabledIndex = binary.LittleEndian.Uint32(buf[base+0x5c:])
-		o.AnchorX = int16(binary.LittleEndian.Uint16(buf[base+0x64:]))
-		o.AnchorY = int16(binary.LittleEndian.Uint16(buf[base+0x66:]))
-		o.WeaponAnimation = binary.LittleEndian.Uint32(buf[base+0x68:])
-		o.TradePriority = binary.LittleEndian.Uint32(buf[base+0x6c:])
-		o.FloatingGroup = binary.LittleEndian.Uint32(buf[base+0x70:])
-		o.AutomapEntry = binary.LittleEndian.Uint32(buf[base+0x7c:])
-		o.BridgePatchXOffset = int16(binary.LittleEndian.Uint16(buf[base+0x80:]))
-		o.BridgePatchYOffset = int16(binary.LittleEndian.Uint16(buf[base+0x82:]))
-		o.BridgePatchXSize = int16(binary.LittleEndian.Uint16(buf[base+0x84:]))
-		o.BridgePatchYSize = int16(binary.LittleEndian.Uint16(buf[base+0x86:]))
+		entry := buf[i*EntrySize : (i+1)*EntrySize]
+		decodeEntry(&out.Entries[i], entry)
 	}
 	return out, nil
+}
+
+func decodeEntry(o *Object, entry []byte) {
+	le := binary.LittleEndian
+
+	o.FlagsA = le.Uint32(entry[0x00:])
+	copy(o.SubValues[:], entry[0x04:0x14])
+	o.Weight = le.Uint32(entry[0x14:])
+	o.AnimationIndex = int32(le.Uint32(entry[0x18:]))
+	o.SBFlags = le.Uint32(entry[0x1c:])
+	o.Name = readNulPadded(entry[0x20:0x40])
+	o.ID = le.Uint32(entry[0x30:])
+	o.Class = le.Uint32(entry[0x34:])
+	o.BreakAnimationIndex = le.Uint32(entry[0x38:])
+	o.ClothingCode = readNulPadded(entry[0x3c:0x4c])
+	o.FloatingImageIndex = le.Uint32(entry[0x4c:])
+	o.FloatingListIndex = le.Uint32(entry[0x50:])
+	o.FloatingHighlightIndex = le.Uint32(entry[0x54:])
+	o.FloatingPressedIndex = le.Uint32(entry[0x58:])
+	o.FloatingDisabledIndex = le.Uint32(entry[0x5c:])
+	o.AnchorX = int16(le.Uint16(entry[0x64:]))
+	o.AnchorY = int16(le.Uint16(entry[0x66:]))
+	o.WeaponAnimation = le.Uint32(entry[0x68:])
+	o.TradePriority = le.Uint32(entry[0x6c:])
+	o.FloatingGroup = le.Uint32(entry[0x70:])
+	o.AutomapEntry = le.Uint32(entry[0x7c:])
+	o.BridgePatchXOffset = int16(le.Uint16(entry[0x80:]))
+	o.BridgePatchYOffset = int16(le.Uint16(entry[0x82:]))
+	o.BridgePatchXSize = int16(le.Uint16(entry[0x84:]))
+	o.BridgePatchYSize = int16(le.Uint16(entry[0x86:]))
 }
 
 // HasSB returns whether the entry has a particular static-behaviour

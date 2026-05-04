@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
-// Package heroes reads the static\heroes\<class><sex>{.key,A..E.idc}
-// triplets: a hero animation archive shared with APacked imagelists.
+// Package heroes reads the static\heroes\<class><sex>{.key,A..E.idc} triplets:
+// a hero animation archive shared with APacked imagelists.
 package heroes
 
 import (
@@ -30,16 +30,17 @@ import (
 //	+10 YMin     int16   sprite bbox top edge in composite coords
 //	+12 Width    uint16  sprite bbox width
 //	+14 Height   uint16  sprite bbox height (also the line-record
-//	                     count — empty rows still take 8 bytes)
-//	+16 AttachPairs [12]int16   6 (x,y) attach points used to
-//	                     anchor sub-sprites (e.g. weapon to hand)
+//	                     count - empty rows still take 8 bytes)
+//	+16 AttachPairs [12]int16
+//	                     6 (x,y) attach points used to anchor
+//	                     sub-sprites (e.g. weapon to hand)
 //	                     in composite coords; 0xffff = unused.
 //
 // The "hotspot" is implicit: the agent's world position (X, Y)
-// corresponds to a per-class anchor (CX, CY) in composite coords
-// (set by FUN_0050bb10 — see heroClassAnchors in cmd/divine).
-// A frame's world top-left is therefore (X + XMin - CX,
-// Y + YMin - CY), and its bbox is Width × Height.
+// corresponds to a per-class anchor (CX, CY) in composite coords.
+// A frame's world top-left is therefore:
+// (X + XMin - CX, Y + YMin - CY)
+// and its bbox is Width * Height.
 type IDCRecord struct {
 	Offset      uint32
 	Size        uint32
@@ -139,15 +140,16 @@ func DecodeKey(r io.Reader) (*Key, error) {
 //	u32 compressed_size
 //	u8  lzo1x_data[compressed_size]
 //
-// IDCRecord.Offset is a GLOBAL byte offset into the concatenation of
-// every block's decompressed buffer.  A frame can therefore reference
-// pixel data that lives in any earlier block, which is how the engine
-// shares pose/anim frames across direction subgroups.
+// IDCRecord.Offset is a GLOBAL byte offset into the concatenation of every
+// block's decompressed buffer.
+//
+// A frame can therefore reference pixel data that lives in any earlier block,
+// which is how the engine shares pose/anim frames across direction subgroups.
 type BIC struct {
 	raw    []byte
 	idc    []IDCRecord
 	blocks []bicBlock
-	cache  map[int][]byte // block index → decompressed buffer
+	cache  map[int][]byte // block index to decompressed buffer
 }
 
 type bicBlock struct {
@@ -159,10 +161,11 @@ type bicBlock struct {
 	endFrame   int // one past last
 }
 
-// OpenBIC pairs a .bic file's bytes with its key/idc metadata so frames
-// can be decoded by id.  The returned BIC retains references to bic
-// and idc (no copy).  Each compressed block is sized eagerly so that
-// any frame can be located by a single binary search on cumOff.
+// OpenBIC pairs a .bic file's bytes with its key/idc metadata so frames can be
+// decoded by id.
+// The returned BIC retains references to bic and idc (no copy).
+// Each compressed block is sized eagerly so that any frame can be located by a
+// single binary search on cumOff.
 func OpenBIC(bic []byte, k *Key, idc []IDCRecord) (*BIC, error) {
 	if k == nil {
 		return nil, errors.New("heroes: nil key")
@@ -170,11 +173,16 @@ func OpenBIC(bic []byte, k *Key, idc []IDCRecord) (*BIC, error) {
 	out := &BIC{raw: bic, idc: idc, cache: map[int][]byte{}}
 	off := 0
 	cum := 0
+	if out.blocks == nil {
+		out.blocks = make([]bicBlock, 0, len(k.Groups))
+	}
 	for _, g := range k.Groups {
 		if off+4 > len(bic) {
 			return nil, fmt.Errorf("heroes: bic truncated at group %s (off=%d)", g.Name, off)
 		}
 		csize := int(binary.LittleEndian.Uint32(bic[off:]))
+
+		// TODO: Make this lazy
 		usize, err := lzoUncompressedSize(bic[off+4 : off+4+csize])
 		if err != nil {
 			return nil, fmt.Errorf("heroes: group %s lzo size: %w", g.Name, err)
@@ -193,10 +201,8 @@ func OpenBIC(bic []byte, k *Key, idc []IDCRecord) (*BIC, error) {
 	return out, nil
 }
 
-// lzoUncompressedSize decompresses an LZO1X stream into successively
-// larger buffers until it stops short, returning the actual produced
-// size.  Used at index time so we know each block's decompressed
-// extent without paying for the full decode.
+// lzoUncompressedSize decompresses an LZO1X stream into successively larger
+// buffers until it stops short, returning the actual produced size.
 func lzoUncompressedSize(src []byte) (int, error) {
 	// LZO has no length header; grow until success.  In practice
 	// hero blocks are <2 MB; start there and double on failure.
@@ -212,14 +218,14 @@ func lzoUncompressedSize(src []byte) (int, error) {
 	return 0, errors.New("lzo block exceeds 64 MB")
 }
 
-// Frame decodes one frame by its global frame id (matching the IDC
-// record index) and returns it as an NRGBA image of the sprite's
-// stored bounding box.  Transparent pixels are alpha=0.
+// Frame decodes one frame by its global frame id (matching the IDC record
+// index) and returns it as an NRGBA image of the sprite's stored bounding box.
+// Transparent pixels are alpha=0.
 //
-// IDC offsets for the first frame of each .key group are NOT the
-// frame's global decompressed offset — they encode the .bic file
-// offset of that block's LZO data (BlobOff + 4).  We detect those by
-// matching frameID against block boundaries and substitute the
+// IDC offsets for the first frame of each .key group are NOT the frame's global
+// decompressed offset - they encode the .bic file offset of that block's LZO
+// data (BlobOff + 4).
+// Detect those by matching frameID against block boundaries and substitute the
 // correct global offset (the block's cumOff, with frame at local 0).
 func (b *BIC) Frame(rec IDCRecord, frameID int) (*image.NRGBA, error) {
 	var blk bicBlock
@@ -285,9 +291,15 @@ func (b *BIC) blockBuffer(bi int) ([]byte, error) {
 }
 
 // decodeFrame parses a single frame within its group buffer slice.
-// Frame layout: u32 total_size, u32 pixel_data_offset, u16 hotspot_x,
-// u16 hotspot_y, then hotspot_y line records (CPacked-style), then
-// RGB565 pixel data at pixel_data_offset from frame start.
+// Frame layout:
+//
+//	u32 total_size,
+//	u32 pixel_data_offset
+//	u16 hotspot_x,
+//	u16 hotspot_y
+//
+// then hotspot_y line records (CPacked-style)
+// then RGB565 pixel data at pixel_data_offset from frame start.
 func decodeFrame(frame []byte, rec IDCRecord) (*image.NRGBA, error) {
 	if len(frame) < 12 {
 		return nil, fmt.Errorf("heroes: frame too small (%d bytes)", len(frame))
@@ -306,8 +318,11 @@ func decodeFrame(frame []byte, rec IDCRecord) (*image.NRGBA, error) {
 			pos += 8 // empty line is 8 bytes
 			continue
 		}
-		// Non-empty: u16 num_spans, u32 pixel_offset (MISALIGNED — at
-		// pos+2), then N (u16 start_x, u16 length), then u16 pad.
+		// Non-empty:
+		// u16 num_spans,
+		// u32 pixel_offset (MISALIGNED - at pos+2),
+		// then N (u16 start_x, u16 length),
+		// then u16 pad.
 		if pos+2+4+nSpans*4+2 > len(frame) {
 			return nil, fmt.Errorf("heroes: line %d body out of range (pos=%d, n=%d)", ly, pos, nSpans)
 		}

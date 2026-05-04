@@ -57,8 +57,8 @@ type Reader struct {
 
 var (
 	// ErrUnsupportedFlags is returned by DecodeCell when the entry's flags
-	// select a path other than the standard sprite (e.g. raw 64x64,
-	// palette, or special).
+	// select a path other than the standard sprite (e.g. raw 64x64, palette, or
+	// special).
 	ErrUnsupportedFlags = errors.New("cpacked: unsupported cell flags")
 
 	ErrIndexAlignment  = errors.New("cpacked: index size is not a multiple of 56")
@@ -74,30 +74,30 @@ func NewReader(idx []byte, blob io.ReaderAt, blobLen int64) (*Reader, error) {
 	}
 	n := len(idx) / EntrySize
 	entries := make([]Entry, n)
+	le := binary.LittleEndian
 	for i := range n {
 		o := i * EntrySize
 		entries[i] = Entry{
-			BlobOffset:  binary.LittleEndian.Uint32(idx[o:]),
-			Width:       binary.LittleEndian.Uint32(idx[o+4:]),
-			Height:      binary.LittleEndian.Uint32(idx[o+8:]),
-			Flags:       binary.LittleEndian.Uint32(idx[o+12:]),
-			AnchorX:     binary.LittleEndian.Uint32(idx[o+16:]),
-			AnchorY:     binary.LittleEndian.Uint32(idx[o+20:]),
-			WidthInner:  binary.LittleEndian.Uint32(idx[o+24:]),
-			HeightInner: binary.LittleEndian.Uint32(idx[o+28:]),
-			PackedDims:  binary.LittleEndian.Uint32(idx[o+32:]),
+			BlobOffset:  le.Uint32(idx[o:]),
+			Width:       le.Uint32(idx[o+4:]),
+			Height:      le.Uint32(idx[o+8:]),
+			Flags:       le.Uint32(idx[o+12:]),
+			AnchorX:     le.Uint32(idx[o+16:]),
+			AnchorY:     le.Uint32(idx[o+20:]),
+			WidthInner:  le.Uint32(idx[o+24:]),
+			HeightInner: le.Uint32(idx[o+28:]),
+			PackedDims:  le.Uint32(idx[o+32:]),
 		}
 		for j := range 5 {
-			entries[i].Reserved[j] = binary.LittleEndian.Uint32(idx[o+36+4*j:])
+			entries[i].Reserved[j] = le.Uint32(idx[o+36+4*j:])
 		}
 	}
 	return &Reader{entries: entries, blob: blob, blobLen: blobLen}, nil
 }
 
-// Count returns the number of entries.
 func (r *Reader) Count() int { return len(r.entries) }
 
-// Entry returns a copy of entry i.
+// Entry returns a shallow copy of entry i.
 func (r *Reader) Entry(i int) (Entry, error) {
 	if i < 0 || i >= len(r.entries) {
 		return Entry{}, fmt.Errorf("%w: %d (have %d)", ErrEntryOutOfRange, i, len(r.entries))
@@ -106,9 +106,8 @@ func (r *Reader) Entry(i int) (Entry, error) {
 }
 
 // blobBounds returns [start, end) of the i-th compressed entry within the blob.
-func (r *Reader) blobBounds(i int) (int64, int64, error) {
-	start := int64(r.entries[i].BlobOffset)
-	var end int64
+func (r *Reader) blobBounds(i int) (start int64, end int64, _ error) {
+	start = int64(r.entries[i].BlobOffset)
 	if i+1 < len(r.entries) {
 		end = int64(r.entries[i+1].BlobOffset)
 	} else {
@@ -120,8 +119,8 @@ func (r *Reader) blobBounds(i int) (int64, int64, error) {
 	return start, end, nil
 }
 
-// CompressedPayload returns the LZO1X-1 stream for entry i
-// (without the leading u32 uncompressed-size header).
+// CompressedPayload returns the LZO1X-1 stream for entry i (without the leading
+// u32 uncompressed-size header).
 func (r *Reader) CompressedPayload(i int) ([]byte, uint32, error) {
 	if _, err := r.Entry(i); err != nil {
 		return nil, 0, err
@@ -146,8 +145,8 @@ func (r *Reader) CompressedPayload(i int) ([]byte, uint32, error) {
 }
 
 // CellPayload decompresses entry i and returns its raw post-LZO bytes.
-// The buffer is the engine's cell layout: header, per-line span table,
-// and packed RGB565 pixel runs.
+// The buffer is the engine's cell layout: header, per-line span table, and
+// packed RGB565 pixel runs.
 func (r *Reader) CellPayload(i int) ([]byte, error) {
 	body, uncomp, err := r.CompressedPayload(i)
 	if err != nil {
@@ -164,12 +163,12 @@ func (r *Reader) CellPayload(i int) ([]byte, error) {
 	return dst, nil
 }
 
-// Cell is a decoded standard sprite cell — the result of parsing a
-// flags=0x01 cell payload according to the per-line span table.
+// Cell is a decoded standard sprite cell — the result of parsing a flags=0x01
+// cell payload according to the per-line span table.
 //
-// Pixels are stored as RGB565 (2 bytes/pixel). The returned slice is
-// row-major, length Width * Height * 2; pixels not covered by any
-// span are zero-filled (transparent).
+// Pixels are stored as RGB565 (2 bytes/pixel).
+// The returned slice is row-major, length Width * Height * 2
+// Pixels not covered by any span are zero-filled (transparent).
 type Cell struct {
 	Width    int
 	Height   int
@@ -181,8 +180,9 @@ type Cell struct {
 }
 
 // DecodeCell parses entry i as a flags=0x01 sprite, returning the
-// reconstructed RGB565 raster. Returns ErrUnsupportedFlags if the cell
-// uses one of the non-standard paths (raw 64x64, palette, special).
+// reconstructed RGB565 raster.
+// Returns ErrUnsupportedFlags if the cell uses one of the non-standard paths
+// (raw 64x64, palette, special).
 func (r *Reader) DecodeCell(i int) (*Cell, error) {
 	e, err := r.Entry(i)
 	if err != nil {
@@ -228,9 +228,8 @@ func (r *Reader) DecodeCell(i int) (*Cell, error) {
 			cursor += 8 // empty line stride
 			continue
 		}
-		// pixel_offset is misaligned — at cursor+2 — per the engine's
-		// post-decode fixup at div.exe FUN_00558290 (writes back to
-		// *(int *)((int)piVar2 + 2)).
+		// pixel_offset is misaligned at cursor+2 - per the engine's
+		// post-decode fixup at div.exe FUN_00558290.
 		pixelOff := binary.LittleEndian.Uint32(payload[cursor+2 : cursor+6])
 		spansStart := cursor + 6
 		px := int(baseOff) + int(pixelOff)

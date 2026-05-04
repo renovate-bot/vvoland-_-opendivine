@@ -9,12 +9,11 @@ import (
 	"strings"
 	"testing"
 
+	"gotest.tools/v3/assert"
+	"gotest.tools/v3/assert/cmp"
 	"grono.dev/opendivine/internal/testutils"
 )
 
-// Expected record counts per Collide.<n>; cross-checked against the
-// CPacked imagelist entry counts where they're paired (matches confirm
-// the "per-sprite collision-mask" interpretation).
 var expected = []struct {
 	name      string // on-disk filename under static/imagelists/
 	count     int
@@ -35,22 +34,12 @@ var expected = []struct {
 	{"Collide.12", 1387, 12},
 }
 
-// TestAllCollideFiles loads every shipped Collide.<n> from
-// $TEST_GAMEDATA_PATH/static/imagelists/ and validates record counts.
-// Skips the whole table when the env var is unset; skips individual
-// rows when that specific Collide.<n> isn't shipped (the Steam
-// re-release, for example, only includes Collide.{2,3,5}).
-//
-// Filename casing varies by install (Collide vs COLLIDE), so we
-// scan the directory once and match case-insensitively rather than
-// hard-coding either form.
 func TestAllCollideFiles(t *testing.T) {
 	gamedata := testutils.TestGameData(t)
 	dir := filepath.Join(gamedata, "static/imagelists")
 	entries, err := os.ReadDir(dir)
-	if err != nil {
-		t.Fatalf("read %s: %v", dir, err)
-	}
+	assert.NilError(t, err)
+
 	available := map[string]string{} // lower-case name -> on-disk name
 	for _, e := range entries {
 		available[strings.ToLower(e.Name())] = e.Name()
@@ -64,19 +53,12 @@ func TestAllCollideFiles(t *testing.T) {
 			}
 			path := filepath.Join(dir, onDisk)
 			data, err := os.ReadFile(path)
-			if err != nil {
-				t.Fatalf("read %s: %v", path, err)
-			}
+			assert.NilError(t, err)
+
 			f, err := Decode(bytes.NewReader(data))
-			if err != nil {
-				t.Fatalf("Decode: %v", err)
-			}
-			if len(f.Records) != w.count {
-				t.Errorf("records = %d, want %d", len(f.Records), w.count)
-			}
-			if got := len(f.Records) * RecordSize; got != len(data) {
-				t.Errorf("byte total %d, want %d", got, len(data))
-			}
+			assert.NilError(t, err)
+			assert.Check(t, cmp.Len(f.Records, w.count))
+			assert.Check(t, cmp.Equal(len(f.Records)*RecordSize, len(data)))
 		})
 	}
 }
