@@ -1,5 +1,6 @@
 # OpenDivine
 
+[![CI](https://github.com/vvoland/opendivine/actions/workflows/ci.yaml/badge.svg)](https://github.com/vvoland/opendivine/actions/workflows/ci.yaml)
 [![Matrix](https://img.shields.io/badge/matrix-%23opendivine-0dbd8b?logo=matrix)](https://matrix.to/#/!yvmXJIsXKstaHvttsE:matrix.org)
 
 A Go reimplementation of **Divine Divinity** (Larian Studios, 2002).
