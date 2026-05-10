@@ -78,7 +78,7 @@ install_linux_deps() {
                 apt-get install -y --no-install-recommends \
                     libx11-6 libxcursor1 libxinerama1 libxi6 \
                     libxrandr2 libxxf86vm1 libxkbcommon0 \
-                    libwayland-client0 libgl1 libasound2
+                    libwayland-client0 libgl1 libasound2t64
             fi
             ;;
         dnf | yum)
