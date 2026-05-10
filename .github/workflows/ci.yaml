@@ -39,7 +39,7 @@ jobs:
           cache: true
 
       - name: Install dependencies
-        run: sudo ./hack/install-deps.sh
+        run: sudo ./hack/install-deps.sh dev
 
       - name: Run tests
         run: go test ./...

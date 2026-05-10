@@ -8,7 +8,7 @@ ARG UID=1000
 FROM ${GOLANG_IMAGE} AS golang-base
 RUN --mount=type=cache,id=apk,target=/var/cache/apk,sharing=locked \
     --mount=type=bind,source=hack/install-deps.sh,target=/tmp/install-deps.sh \
-    apk add git && sh /tmp/install-deps.sh
+    apk add git && sh /tmp/install-deps.sh dev
 
 FROM golang-base AS build-actionlint
 ARG ACTIONLINT_VERSION=1.7.12
