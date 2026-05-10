@@ -16,7 +16,8 @@
       "description": "Allow gha-pin-diff to stay on semver tag instead of digest pinning",
       "matchManagers": ["github-actions"],
       "matchPackageNames": ["vvoland/gha-pin-diff"],
-      "pinDigests": false
+      "pinDigests": false,
+      "enabled": false
     }
   ],
   "postUpdateOptions": ["gomodTidy"]
