@@ -22,6 +22,14 @@ GO_CACHE_MOUNTS=(
     -e HOME=/tmp
 )
 
+BUILD_CACHE_ARGS=()
+if [[ -n ${GITHUB_ACTIONS:-} ]]; then
+    BUILD_CACHE_ARGS=(
+        --cache-from type=gha,scope=lint
+        --cache-to type=gha,scope=lint,mode=max
+    )
+fi
+
 # When running inside GitHub Actions, forward the env var so tools that
 # auto-detect (actionlint) and switch on it find it inside the container.
 CI_ENV=()
@@ -42,7 +50,7 @@ run_silent() {
 build() {
     local target=$1
     printf "%s> Building %s%s\n" "$INFO" "$target" "$RESET"
-    run_silent docker build -q -f lint.Dockerfile --target "$target" -t "lint/$target" .
+    run_silent docker build -q "${BUILD_CACHE_ARGS[@]}" -f lint.Dockerfile --target "$target" -t "lint/$target" .
 }
 
 docker_run() {
