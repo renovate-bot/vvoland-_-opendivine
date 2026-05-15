@@ -65,6 +65,10 @@ func main() {
 	flag.IntVar(&cfg.WalkFrame, "walk", -1, "force walk anim (slot 1) at AnimIdx N (debug; -1 = no override)")
 	flag.IntVar(&cfg.Slot, "slot", -1,
 		"force AnimSlot (debug; -1 = no override); 0=B, 1=A walk, 2=Q punch, 3=D, 4=E, 5=F, 6=H, 7=P, 11=G, 12=C, 13=Z, 16=J, 17=M/K, 18=U")
+	flag.BoolVar(&cfg.SkipMenu, "skipmenu", false,
+		"skip the main menu and boot straight into the world")
+	flag.StringVar(&cfg.MenuMusic, "Title", "",
+		"force a specific music.dat label for menu playback (e.g. \"1\", \"forest\"); empty = first menu track")
 	flag.Parse()
 
 	if err := game.Run(cfg); err != nil {
