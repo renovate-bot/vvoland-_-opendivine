@@ -72,12 +72,13 @@ func (m *Menu) TakeAction() Action {
 	return a
 }
 
-// buttonRect returns the screen rect for button index i: a centred
-// stack of equal rows whose size tracks uiScale. The hit region is
-// the centre half of the window width; Draw centres the text in it.
+// buttonRect returns the screen rect for button index i: a stack of
+// equal rows whose size tracks itemPx, starting 45% down the window.
+// The hit region is the centre half of the window width; Draw centres
+// the text in it.
 func (m *Menu) buttonRect(i int) (x, y, w, h int) {
-	lh := int(float64(lineH) * m.uiScale())
-	startY := m.h * 45 / 100
+	lh := m.lineH()
+	startY := m.h * 35 / 100
 
 	w = m.w / 2
 	x = (m.w - w) / 2

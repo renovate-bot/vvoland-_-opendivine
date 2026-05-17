@@ -6,15 +6,10 @@ import (
 	"image/color"
 
 	"github.com/hajimehoshi/ebiten/v2"
-	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
 	"github.com/hajimehoshi/ebiten/v2/vector"
 )
 
-// Menu-text palette, eyeballed from the reference screenshot
-// (16603907-divine-divinity-windows-main-menu.png). Not traced from
-// div.exe: the original menu text colour is undocumented, and this is
-// OpenDivine's own presentation, so the screenshot is the authority.
 var (
 	colNormal   = color.NRGBA{0xc9, 0xa6, 0x4e, 0xff} // warm gold
 	colHover    = color.NRGBA{0xf3, 0xe3, 0xb0, 0xff} // bright cream
@@ -28,9 +23,6 @@ func (m *Menu) Layout(w, h int) (int, int) {
 	return w, h
 }
 
-// Update polls input. Mouse hover updates m.hovered; left-click on an
-// enabled button latches Pending. ESC and a click on Quit both queue
-// ActionQuit.
 func (m *Menu) Update() error {
 	if inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
 		m.pending = ActionQuit
@@ -54,21 +46,30 @@ func (m *Menu) Update() error {
 	return nil
 }
 
-// Draw paints the menu: backdrop, then the button stack as plain
-// centred gold text (no boxes, matching the reference screenshot).
-// Hovered enabled items brighten; disabled items render dimmed.
-func (m *Menu) Draw(screen *ebiten.Image) {
-	s := m.uiScale()
+func (m *Menu) itemPx() int {
+	n := len(m.Buttons)
+	if n == 0 {
+		n = 1
+	}
+	px := m.h * 6 / (n * 14)
+	px = min(max(px, 12), 72)
+	return px
+}
 
+// lineH is the vertical pitch between menu rows.
+func (m *Menu) lineH() int { return m.itemPx() * 14 / 10 }
+
+func (m *Menu) Draw(screen *ebiten.Image) {
 	if m.Backdrop != nil {
 		drawBackdropImage(screen, m.Backdrop, m.w, m.h)
 	} else {
 		drawBackdropGradient(screen, m.w, m.h)
-		m.drawTitle(screen, s)
+		m.drawTitle(screen)
 	}
 
+	px := m.itemPx()
 	for i, b := range m.Buttons {
-		x, y, w, h := m.buttonRect(i)
+		_, y, _, h := m.buttonRect(i)
 		var c color.NRGBA
 		switch {
 		case b.Disabled:
@@ -78,79 +79,25 @@ func (m *Menu) Draw(screen *ebiten.Image) {
 		default:
 			c = colNormal
 		}
-		img := textImage(b.Label)
-		tw := int(float64(img.Bounds().Dx()) * s)
-		th := int(float64(textH) * s)
+		img := textImage(b.Label, px)
 		drawTinted(screen, img,
-			x+(w-tw)/2, // centre within the (centred) hit rect
-			y+(h-th)/2,
-			s, c)
+			(m.w-img.Bounds().Dx())/2, // centred on screen
+			y+(h-img.Bounds().Dy())/2,
+			c)
 	}
 
-	// Version / build string, bottom-right, smaller than the items.
-	vs := s * 0.6
-	if vs < 1 {
-		vs = 1
-	}
-	ver := textImage("OpenDivine v0.0.0-dev")
-	pad := int(6 * s)
+	vpx := px * 55 / 100
+	vpx = max(vpx, 11)
+	ver := textImage("OpenDivine v0.0.0-dev", vpx)
+	pad := vpx / 2
 	drawTinted(screen, ver,
-		m.w-int(float64(ver.Bounds().Dx())*vs)-pad,
-		m.h-int(float64(textH)*vs)-pad,
-		vs, colVersion)
+		m.w-ver.Bounds().Dx()-pad,
+		m.h-ver.Bounds().Dy()-pad,
+		colVersion)
 }
 
-// glyphW / textH are the fixed advance and cell height of the
-// ebitenutil debug font; lineH is one menu row at scale 1.
-const (
-	glyphW = 6
-	textH  = 14
-	lineH  = textH
-)
-
-// textCache memoises rendered (white) text images. Labels and the
-// version string are static, so the cache is bounded; the menu draw
-// loop is single-threaded under ebiten so no locking is needed.
-var textCache = map[string]*ebiten.Image{}
-
-// textImage returns s rendered in the white debug font on a
-// transparent background, cached by string.
-func textImage(s string) *ebiten.Image {
-	if img, ok := textCache[s]; ok {
-		return img
-	}
-	w := max(len(s)*glyphW, 1)
-	img := ebiten.NewImage(w, textH)
-	ebitenutil.DebugPrintAt(img, s, 0, 0)
-	textCache[s] = img
-	return img
-}
-
-// uiScale is the single font magnification for the whole menu, sized
-// so the button stack fills most of the window height. Clamped so it
-// stays readable on tiny windows and sane on huge ones.
-func (m *Menu) uiScale() float64 {
-	n := len(m.Buttons)
-	if n == 0 {
-		return 1
-	}
-	s := float64(m.h) * 0.6 / float64(n*lineH)
-	if s < 1 {
-		s = 1
-	}
-	if s > 5 {
-		s = 5
-	}
-	return s
-}
-
-// drawTinted blits a white text image at (x, y), magnified by scale
-// and multiplied by c so the glyphs take c's colour (the debug font's
-// black drop-shadow stays dark, keeping text legible over the
-// backdrop).
-func drawTinted(dst, src *ebiten.Image, x, y int, scale float64, c color.NRGBA) {
+func drawTinted(dst, src *ebiten.Image, x, y int, c color.NRGBA) {
 	op := &ebiten.DrawImageOptions{}
-	op.GeoM.Scale(scale, scale)
 	op.GeoM.Translate(float64(x), float64(y))
 	op.ColorScale.Scale(
 		float32(c.R)/255, float32(c.G)/255,
@@ -158,8 +105,6 @@ func drawTinted(dst, src *ebiten.Image, x, y int, scale float64, c color.NRGBA) 
 	dst.DrawImage(src, op)
 }
 
-// drawBackdropImage scales src to fill (w, h) preserving aspect,
-// letterboxing the remainder with black.
 func drawBackdropImage(dst, src *ebiten.Image, w, h int) {
 	dst.Fill(color.NRGBA{0, 0, 0, 0xff})
 	sw, sh := src.Bounds().Dx(), src.Bounds().Dy()
@@ -181,8 +126,6 @@ func drawBackdropImage(dst, src *ebiten.Image, w, h int) {
 	dst.DrawImage(src, op)
 }
 
-// drawBackdropGradient is the fallback when no real backdrop is
-// available, a vertical dark-brown gradient.
 func drawBackdropGradient(dst *ebiten.Image, w, h int) {
 	top := color.NRGBA{0x14, 0x0b, 0x05, 0xff}
 	bot := color.NRGBA{0x05, 0x03, 0x02, 0xff}
@@ -201,16 +144,17 @@ func drawBackdropGradient(dst *ebiten.Image, w, h int) {
 	}
 }
 
-func (m *Menu) drawTitle(dst *ebiten.Image, s float64) {
-	ts := s * 1.5 // title larger than the menu items
-	ti := textImage("DIVINE  DIVINITY")
-	si := textImage("OpenDivine")
+func (m *Menu) drawTitle(dst *ebiten.Image) {
+	tpx := m.itemPx() * 2 // title larger than the menu items
+	spx := m.itemPx()
+	ti := textImage("DIVINE  DIVINITY", tpx)
+	si := textImage("OpenDivine", spx)
 	y := m.h / 12
-	drawTinted(dst, ti, (m.w-int(float64(ti.Bounds().Dx())*ts))/2, y, ts, colNormal)
+	drawTinted(dst, ti, (m.w-ti.Bounds().Dx())/2, y, colNormal)
 	drawTinted(dst, si,
-		(m.w-int(float64(si.Bounds().Dx())*s))/2,
-		y+int(float64(textH)*ts)+int(4*s),
-		s, colVersion)
+		(m.w-si.Bounds().Dx())/2,
+		y+ti.Bounds().Dy()+spx/3,
+		colVersion)
 }
 
 func lerp(a, b uint8, t float32) uint8 {
