@@ -3,7 +3,15 @@
 package game
 
 import (
+	"log"
+	"os"
+	"path/filepath"
+
 	"github.com/hajimehoshi/ebiten/v2"
+
+	"grono.dev/opendivine/internal/game/audio"
+	"grono.dev/opendivine/internal/game/mainmenu"
+	"grono.dev/opendivine/pkg/assets/tga"
 )
 
 // Config is the input to New / Run. Every field is a plain value;
@@ -36,19 +44,141 @@ type Config struct {
 	// Class is the hero class folder name under static\heroes\.
 	Class string
 
+	// SkipMenu boots directly into the world (legacy path / dev shortcut).
+	SkipMenu bool
+
+	// MenuMusic, if non-empty, forces a specific music.dat label for
+	// menu playback (e.g. "1", "forest"). Empty = first track.
+	MenuMusic string
+
 	// Debug overrides. -1 = no override.
 	Dir       int // force player Dir 0..7
 	WalkFrame int // force walk anim (slot 1) at this AnimIdx
 	Slot      int // force AnimSlot
 }
 
+// Run boots OpenDivine. By default it opens the main menu; choosing
+// "New Game" then constructs the in-world *Game and swaps it in.
+// SkipMenu bypasses the menu and goes straight to the world (matches
+// the pre-menu boot behaviour).
 func Run(cfg Config) error {
-	g, err := New(cfg)
-	if err != nil {
-		return err
+	if cfg.Screenshot != "" {
+		g, err := New(cfg)
+		if err != nil {
+			return err
+		}
+		return ebiten.RunGame(g)
 	}
-	ebiten.SetWindowSize(g.winW, g.winH)
+
+	ebiten.SetWindowSize(cfg.WindowW, cfg.WindowH)
 	ebiten.SetWindowTitle("OpenDivine")
 	ebiten.SetWindowResizingMode(ebiten.WindowResizingModeEnabled)
-	return ebiten.RunGame(g)
+
+	if cfg.SkipMenu {
+		g, err := New(cfg)
+		if err != nil {
+			return err
+		}
+		return ebiten.RunGame(&shell{current: gameScreen{g: g}})
+	}
+
+	menu := mainmenu.New(false /* no live game yet */)
+	if back, err := loadMenuBackdrop(cfg.GamedataDir, cfg.WindowW); err != nil {
+		log.Printf("menu backdrop: %v (using gradient fallback)", err)
+	} else {
+		menu.Backdrop = back
+	}
+
+	music, err := audio.NewMusicManager(cfg.GamedataDir)
+	if err != nil {
+		log.Printf("audio init: %v (continuing silently)", err)
+	} else {
+		label := cfg.MenuMusic
+		if label == "" {
+			tracks := music.Tracks()
+			if len(tracks) > 0 {
+				label = "Title"
+			}
+		}
+		if label != "" {
+			if err := music.PlayMusic(label, true); err != nil {
+				log.Printf("menu music: %v", err)
+			} else {
+				log.Printf("menu music: playing track %q", label)
+			}
+		}
+	}
+
+	sh := &shell{current: &menuScreen{menu: menu, music: music, cfg: cfg}}
+	return ebiten.RunGame(sh)
+}
+
+// menuScreen adapts mainmenu.Menu to Screen, owns the music player,
+// and handles transitions out of the menu.
+type menuScreen struct {
+	menu  *mainmenu.Menu
+	music *audio.MusicManager // may be nil if audio init failed
+	cfg   Config
+}
+
+func (s *menuScreen) stopMusic() {
+	if s.music != nil {
+		s.music.Stop()
+		_ = s.music.Close()
+		s.music = nil
+	}
+}
+
+func (s *menuScreen) Update() (Screen, error) {
+	if err := s.menu.Update(); err != nil {
+		return nil, err
+	}
+	switch s.menu.TakeAction() {
+	case mainmenu.ActionQuit:
+		s.stopMusic()
+		return ScreenQuit, nil
+	case mainmenu.ActionNewGame:
+		s.stopMusic()
+		g, err := New(s.cfg)
+		if err != nil {
+			log.Printf("new game: %v", err)
+			return nil, nil
+		}
+		return gameScreen{g: g}, nil
+	case mainmenu.ActionResume,
+		mainmenu.ActionLoadGame,
+		mainmenu.ActionSaveGame,
+		mainmenu.ActionOptions,
+		mainmenu.ActionViewIntro,
+		mainmenu.ActionCredits:
+		log.Printf("menu action not implemented yet")
+	}
+	return nil, nil
+}
+
+func (s *menuScreen) Draw(dst *ebiten.Image)     { s.menu.Draw(dst) }
+func (s *menuScreen) Layout(w, h int) (int, int) { return s.menu.Layout(w, h) }
+
+// loadMenuBackdrop picks the resolution-appropriate static\back*.tga
+// (backs.tga at 640, backe.tga at 1024, back.tga otherwise) and
+// decodes it into an *ebiten.Image.
+func loadMenuBackdrop(gamedataDir string, winW int) (*ebiten.Image, error) {
+	name := "back.tga"
+	switch winW {
+	case 640:
+		name = "backs.tga"
+	case 1024:
+		name = "backe.tga"
+	}
+	path := filepath.Join(gamedataDir, "static", name)
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	img, err := tga.Decode(f)
+	if err != nil {
+		return nil, err
+	}
+	return ebiten.NewImageFromImage(img), nil
 }
