@@ -93,7 +93,7 @@ github.com/jfreymuth/oggvorbis
 # github.com/jfreymuth/vorbis v1.0.2
 ## explicit; go 1.15
 github.com/jfreymuth/vorbis
-# golang.org/x/image v0.40.0
+# golang.org/x/image v0.41.0
 ## explicit; go 1.25.0
 golang.org/x/image/font
 golang.org/x/image/font/opentype

@@ -5,7 +5,7 @@ go 1.25.0
 require (
 	github.com/anchore/go-lzo v0.1.0
 	github.com/hajimehoshi/ebiten/v2 v2.9.9
-	golang.org/x/image v0.40.0
+	golang.org/x/image v0.41.0
 	gotest.tools/v3 v3.5.2
 )
 
