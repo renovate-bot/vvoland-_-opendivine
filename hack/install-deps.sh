@@ -118,7 +118,7 @@ install_linux_deps() {
                 zypper --non-interactive install -y \
                     libX11-6 libXcursor1 libXinerama1 libXi6 \
                     libXrandr2 libXxf86vm1 libxkbcommon0 \
-                    libwayland-client0 libOpenGL1 libasound2
+                    libwayland-client0 Mesa-libGL1 libasound2
             fi
             ;;
         apk)
