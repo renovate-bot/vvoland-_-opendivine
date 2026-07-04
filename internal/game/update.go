@@ -8,6 +8,9 @@ import (
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
+
+	"grono.dev/opendivine/internal/game/collision"
+	"grono.dev/opendivine/pkg/assets/objects"
 )
 
 var regionKeys = []ebiten.Key{
@@ -31,6 +34,9 @@ func (g *Game) Update() error {
 	}
 	if inpututil.IsKeyJustPressed(ebiten.KeyF8) {
 		g.showObjects = !g.showObjects
+	}
+	if inpututil.IsKeyJustPressed(ebiten.KeyF10) {
+		g.showColliders = !g.showColliders
 	}
 	if inpututil.IsKeyJustPressed(ebiten.KeyF12) {
 		g.wantShot = true
@@ -69,17 +75,17 @@ func (g *Game) Update() error {
 		g.player.ForceSlot = -1
 	}
 	// Movement speed in world pixels per tick.  Engine-traced:
-	// hero base walk = 2 px/frame in 1× iso projection (FUN_004a3*).
-	// 4 px feels right at the game's typical zoom; refine once
-	// the actual move-tick cadence is implemented.
-	speed := 4.0
+	// hero base walk = 2 px/frame, and the loop runs at the engine's
+	// 40 fps tick (SetTPS in Run), so this is 80 px/s like the original.
+	// Shift is a debug fast-walk with no engine counterpart.
+	speed := heroWalkSpeed
 	if ebiten.IsKeyPressed(ebiten.KeyShift) {
 		speed *= 4
 	}
 
 	// Left-click sets a click-to-walk destination at the world point
-	// under the cursor.  The hero then walks in a straight line each
-	// tick until arrival or a collision.  WASD overrides and cancels
+	// under the cursor.  The hero then walks toward it, leg by leg, until
+	// arrival or a wall it cannot get around.  WASD overrides and cancels
 	// the destination.
 	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
 		mx, my := ebiten.CursorPosition()
@@ -94,69 +100,57 @@ func (g *Game) Update() error {
 		}
 	}
 
-	dx, dy := 0.0, 0.0
-	wasdActive := false
+	// Raw key heading (−1/0/+1 per axis); the stepper turns it into legs.
+	hx, hy := 0.0, 0.0
 	if ebiten.IsKeyPressed(ebiten.KeyW) || ebiten.IsKeyPressed(ebiten.KeyArrowUp) {
-		dy -= speed
-		wasdActive = true
+		hy -= 1
 	}
 	if ebiten.IsKeyPressed(ebiten.KeyS) || ebiten.IsKeyPressed(ebiten.KeyArrowDown) {
-		dy += speed
-		wasdActive = true
+		hy += 1
 	}
 	if ebiten.IsKeyPressed(ebiten.KeyA) || ebiten.IsKeyPressed(ebiten.KeyArrowLeft) {
-		dx -= speed
-		wasdActive = true
+		hx -= 1
 	}
 	if ebiten.IsKeyPressed(ebiten.KeyD) || ebiten.IsKeyPressed(ebiten.KeyArrowRight) {
-		dx += speed
-		wasdActive = true
+		hx += 1
 	}
+	wasdActive := hx != 0 || hy != 0
 	if wasdActive {
 		g.hasDest = false // any keyboard input cancels the click target
-	} else if g.hasDest {
-		ddx := g.destX - g.player.X
-		ddy := g.destY - g.player.Y
-		dist := math.Hypot(ddx, ddy)
-		if dist <= speed {
-			// Arrived (within one step), snap and stop.
-			dx, dy = ddx, ddy
-			g.hasDest = false
-		} else {
-			dx = ddx / dist * speed
-			dy = ddy / dist * speed
-		}
 	}
+
 	if g.cameraFollow {
-		// Separate-axis sliding: try X then Y, reject either if it would put
-		// the player into a collider.
-		// Lets the player slide along walls instead of getting stuck on the
-		// corner.
-		nx := clamp(g.player.X+dx, 0, worldXPx)
-		ny := clamp(g.player.Y+dy, 0, worldYPx)
-		if g.playerBlocked(nx, g.player.Y) {
-			nx = g.player.X
+		// Leg-based stepper (re_docs/formats/collide.md, internal/game/mover):
+		// choose a goal, advance one leg-frame, then sync the sprite to the
+		// mover. The mover owns a discrete occupancy cell advanced one cell
+		// per leg, so there is no free-slide / floor()-of-position jitter.
+		g.mover.Speed = speed
+		var goalX, goalY float64
+		active := false
+		switch {
+		case wasdActive:
+			// Aim far along the held heading; each leg re-aims to the nearest
+			// walkable 16-direction, which is what makes it slide along walls.
+			goalX = g.mover.X + hx*4096
+			goalY = g.mover.Y + hy*4096
+			active = true
+		case g.hasDest:
+			goalX, goalY = g.destX, g.destY
+			active = true
 		}
-		if g.playerBlocked(nx, ny) {
-			ny = g.player.Y
-		}
-		dx = nx - g.player.X
-		dy = ny - g.player.Y
-		g.player.X = nx
-		g.player.Y = ny
-		g.camX, g.camY = g.player.CameraTarget()
-		// Cancel click-to-walk if we got fully blocked, no point thrashing on
-		// the wall. Pathfinding TBD.
-		if g.hasDest && dx == 0 && dy == 0 {
+		vx, vy := g.mover.Update(goalX, goalY, active)
+		g.player.X = g.mover.X
+		g.player.Y = g.mover.Y
+		g.player.Step(vx, vy)
+		// Click target reached or fully walled: stop retrying it.
+		if g.hasDest && !wasdActive && vx == 0 && vy == 0 && !g.mover.Moving() {
 			g.hasDest = false
 		}
-		g.player.Step(dx, dy)
+		g.camX, g.camY = g.player.CameraTarget()
 	} else {
 		// Free pan, slower at higher zoom for fine framing.
-		panSpeed := dx / g.zoom
-		panSpeedY := dy / g.zoom
-		g.camX = clamp(g.camX+panSpeed, 0, worldXPx)
-		g.camY = clamp(g.camY+panSpeedY, 0, worldYPx)
+		g.camX = clamp(g.camX+hx*speed/g.zoom, 0, worldXPx)
+		g.camY = clamp(g.camY+hy*speed/g.zoom, 0, worldYPx)
 	}
 	if _, scrollY := ebiten.Wheel(); scrollY != 0 {
 		g.zoom *= 1.0 + 0.1*scrollY
@@ -282,10 +276,12 @@ func (g *Game) objectContainsWorld(in *objectInst, wx, wy float64) bool {
 	return dx*dx+dy*dy < footHitR2
 }
 
-// useObject toggles a door/chest between open and closed, flipping a door's
-// collider so an open door is passable. sb_locked gates opening outright
-// (key-based unlocking is not wired yet). A door is never closed onto the
-// player.
+// useObject toggles a door/chest between open and closed. State
+// changes re-rasterize the object's cube with a freshly derived mask —
+// the engine's remove+add on CObject::Use (re_docs/formats/collide.md)
+// — so an open door stamps nothing and a closed one blocks again.
+// sb_locked gates opening outright (key-based unlocking is not wired
+// yet). A door is never closed onto the player.
 func (g *Game) useObject(in *objectInst) {
 	if in.Locked && !in.Open {
 		return
@@ -295,41 +291,36 @@ func (g *Game) useObject(in *objectInst) {
 	}
 	in.Open = !in.Open
 	if in.ToggleCollider && in.ColliderIdx >= 0 {
-		g.colliders[in.ColliderIdx].enabled = !in.Open
-	}
-}
-
-// playerOnCollider reports whether the player's footprint overlaps a collider
-// box, so a door can't be closed while the player stands in it.
-func (g *Game) playerOnCollider(idx int) bool {
-	const half = 6
-	pb := aabb{X: int(g.player.X) - half, Y: int(g.player.Y) - half, W: half * 2, H: half * 2}
-	return pb.intersects(g.colliders[idx].box)
-}
-
-// playerBlocked reports whether the player's footprint (a small AABB centered
-// on (px, py)) overlaps any wall collider.
-// Uses the 64×64 grid bucket index, the player overlaps at most 4 buckets so
-// the per-tick cost is bounded by max-colliders-per-bucket.
-func (g *Game) playerBlocked(px, py float64) bool {
-	const half = 6 // hero footprint half-extent in world pixels
-	pb := aabb{X: int(px) - half, Y: int(py) - half, W: half * 2, H: half * 2}
-	minCX := pb.X / cellPx
-	maxCX := (pb.X + pb.W - 1) / cellPx
-	minCY := pb.Y / cellPx
-	maxCY := (pb.Y + pb.H - 1) / cellPx
-	for cy := minCY; cy <= maxCY; cy++ {
-		for cx := minCX; cx <= maxCX; cx++ {
-			for _, idx := range g.colliderGrid[cy*worldCellsX+cx] {
-				c := g.colliders[idx]
-				if c.enabled && pb.intersects(c.box) {
-					return true
-				}
-			}
+		c := &g.colliders[in.ColliderIdx]
+		g.walkGrid.Unstamp(c.cube)
+		var cat *objects.Object
+		if g.catalog != nil && in.ObjID >= 0 && in.ObjID < len(g.catalog.Entries) {
+			cat = &g.catalog.Entries[in.ObjID]
 		}
+		c.cube.Mask = objectMask(cat, in)
+		g.walkGrid.Stamp(c.cube)
 	}
-	return false
 }
+
+// playerOnCollider reports whether the player stands on a cell of the
+// collider's stamp rectangle, so a door can't be closed onto the
+// player (the engine's movers are cell-granular, so cell membership is
+// the natural test).
+func (g *Game) playerOnCollider(idx int) bool {
+	return g.colliders[idx].cube.ContainsCell(int(g.player.X), int(g.player.Y))
+}
+
+// playerMask is what player movement tests candidate cells with. The
+// engine's behaviour steppers use mask 0x13 (static | player-block |
+// agent occupancy); we additionally include the closed-door bit so the
+// player cannot walk through a closed unlocked door — the original
+// gameplay clearly blocks there, but the exact mask the player path
+// uses is not pinned in collide.md yet (the stepper mask is).
+const playerMask = collision.MoverMask | collision.MaskDoorClosed
+
+// heroWalkSpeed is the hero's base walk speed in world px per 40 fps
+// tick (engine-traced: 2 px/frame = 80 px/s).
+const heroWalkSpeed = 2.0
 
 func clamp(v, lo, hi float64) float64 {
 	if v < lo {

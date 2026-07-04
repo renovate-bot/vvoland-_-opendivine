@@ -2,7 +2,11 @@
 
 package game
 
-import "github.com/hajimehoshi/ebiten/v2"
+import (
+	"github.com/hajimehoshi/ebiten/v2"
+
+	"grono.dev/opendivine/internal/game/collision"
+)
 
 const (
 	defaultWindowW = 1280
@@ -46,12 +50,13 @@ type objectInst struct {
 	ColliderIdx    int
 }
 
-// collider is one blocker box. A door's collider is disabled while it is open
-// so the player can walk through; this mirrors the engine un-occupying the
-// collision grid on CObject::Use (re_docs/object-interaction.md).
+// collider is one object's stamp into the walkability grid (its cube
+// rectangle + current mask, kept so state changes can re-rasterize:
+// the engine's remove+add on CObject::Use) plus a world-space box for
+// interaction reach queries.
 type collider struct {
-	box     aabb
-	enabled bool
+	cube collision.Cube
+	box  aabb
 }
 
 // floorCell is a populated world cell with non-default floor data.
@@ -66,9 +71,4 @@ type floorCell struct {
 // X/Y is the top-left.
 type aabb struct {
 	X, Y, W, H int
-}
-
-func (a aabb) intersects(b aabb) bool {
-	return a.X < b.X+b.W && a.X+a.W > b.X &&
-		a.Y < b.Y+b.H && a.Y+a.H > b.Y
 }

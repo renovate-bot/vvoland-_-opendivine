@@ -19,6 +19,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/vector"
 
 	"grono.dev/opendivine/internal/game/character"
+	"grono.dev/opendivine/internal/game/collision"
 )
 
 func (g *Game) Draw(screen *ebiten.Image) {
@@ -73,7 +74,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		}
 	}
 
-	// Objects, already sorted by (Layer, Y).
+	// Objects, already sorted by (Y, Layer) in loadRegion.
 	//
 	// Engine-traced render formula (div.exe:0x004a3070 + FUN_005830c0):
 	//
@@ -314,6 +315,41 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		}
 	}
 
+	// Collider debug overlay (F10): sample the walkability grid across the
+	// visible world and mark every cell that blocks the player in red,
+	// plus the single cell the player currently occupies in green.
+	// Sampling the grid (rather than drawing collider boxes) shows exactly
+	// what movement tests — door state, refcounted overlaps and all —
+	// aligned with the sprites under the same orthographic projection, and
+	// the green cell is the mover's whole footprint (the engine's movers
+	// carry no radius and own exactly one cell).
+	if g.showColliders {
+		const sample = 8 // world px between probes
+		red := color.NRGBA{R: 0xff, G: 0x30, B: 0x30, A: 0xa0}
+		green := color.NRGBA{R: 0x30, G: 0xff, B: 0x30, A: 0xc0}
+		dot := float32(2 * g.zoom)
+		if dot < 1 {
+			dot = 1
+		}
+		// The mover's occupancy cell (leg destination, or standing cell
+		// when idle) is the engine's notion of "the cell the player is
+		// in" — discrete and advanced per leg, so it tracks the sprite
+		// without the floor()-of-live-position lead/lag.
+		playerCell, playerOK := g.mover.CellIndex()
+		for wy := int(viewMinY) &^ (sample - 1); wy < int(viewMaxY); wy += sample {
+			for wx := int(viewMinX) &^ (sample - 1); wx < int(viewMaxX); wx += sample {
+				col := red
+				if cell, ok := collision.CellIndex(wx, wy); playerOK && ok && cell == playerCell {
+					col = green
+				} else if !g.walkGrid.Blocked(wx, wy, playerMask) {
+					continue
+				}
+				sx, sy := worldToScreen(float64(wx), float64(wy))
+				vector.FillRect(screen, float32(sx), float32(sy), dot, dot, col, false)
+			}
+		}
+	}
+
 	// Click-to-walk target, small green crosshair, drawn on top.
 	if g.hasDest {
 		dx, dy := worldToScreen(g.destX, g.destY)
@@ -330,6 +366,9 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	}
 	fmt.Fprintf(msg, "region %d  cam (%.0f, %.0f)  player (%.0f, %.0f) %s[F9]  zoom %.2fx  %.1f fps",
 		g.region, g.camX, g.camY, g.player.X, g.player.Y, follow, g.zoom, ebiten.ActualFPS())
+	if g.showColliders {
+		fmt.Fprintf(msg, "  colliders[F10]")
+	}
 
 	// Hover info: world (X,Y), cell (CX,CY), and the topmost object instance
 	// whose rendered sprite contains the cursor.

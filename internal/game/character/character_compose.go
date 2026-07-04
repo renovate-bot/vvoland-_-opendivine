@@ -18,20 +18,21 @@ package character
 // objects.000 +0x3c field, a purpose-built positional visual code such
 // as "MGB0", NOT the human-readable catalogue Name), or 0 if the slot
 // is empty.  The engine reads these in FUN_0043a5b0 from the worn
-// items in equipment slots {1,2,3,4,7}; see re_docs/clothing.md.  The
-// letters key into the per-variant action mappings, a non-empty Helmet
+// items in the visible equipment slots {0,2,3,4,7} (slot 0 = helmet,
+// proven in re_docs/inventory.md); see re_docs/clothing.md.  The
+// letters key into the per-variant action mappings, a non-empty Weapon
 // flips variants B/D from "MGB0" / "MGD0" to a numbered variant like
 // "M1B3" depending on the helmet's class letter.
 type CharacterEquipment struct {
-	Helmet     byte // local_2c[0] in the engine, empty for default
-	HelmetSub  byte // local_2c[1]
-	HelmetCls  byte // local_2c[2], drives variant-B/D 2nd-char mapping
-	Torso      byte // local_14[0]
-	Legs       byte // local_1c[0]
-	Face       byte // local_c[0]
-	Weapon     byte // local_24[0]
-	WeaponSub  byte // local_24[1]
-	WeaponCls  byte // local_24[2]
+	Weapon     byte // local_2c[0] in the engine (slot 3), empty for none
+	WeaponSub  byte // local_2c[1]
+	WeaponCls  byte // local_2c[2], drives variant-B/D 2nd-char mapping
+	Torso      byte // local_14[0] (slot 2)
+	Legs       byte // local_1c[0] (slot 7)
+	Helmet     byte // local_c[0] (slot 0)
+	Shield     byte // local_24[0] (slot 4)
+	ShieldSub  byte // local_24[1]
+	ShieldCls  byte // local_24[2]
 	WeaponHand byte // local_40 in the engine, 0/1/2 (none / one-hand / two-hand)
 }
 
@@ -56,23 +57,24 @@ func composeLayerNames(animSlot int, eq CharacterEquipment) [5]string {
 	// Step 1, derive the action letter from the anim slot.
 	// (Direct port of the param_2 switch in FUN_00439b70.)
 	cVar4 := byte('A')
-	hasHelmet := eq.Helmet != 0
+	hasWeapon := eq.Weapon != 0
 	switch animSlot {
 	case 0:
 		cVar4 = 'B'
 	case 1:
 		cVar4 = 'A'
 	case 2:
-		// Default idle.  No helmet → 'Q'; otherwise inherit the
-		// helmet's first character.
-		if !hasHelmet {
+		// Default idle.  Unarmed → 'Q'; otherwise inherit the
+		// weapon's first character (the idle stance is weapon-driven).
+		if !hasWeapon {
 			cVar4 = 'Q'
 		} else {
-			cVar4 = eq.Helmet
-			// Helmet sub V/X = early return (engine returns from
-			// FUN_00439b70 with no layer names emitted), we
-			// model that as an empty slot for everything.
-			if eq.HelmetSub == 'V' || eq.HelmetSub == 'X' {
+			cVar4 = eq.Weapon
+			// Weapon sub V/X (scroll/arrow) = early return (engine
+			// returns from FUN_00439b70 with no layer names
+			// emitted), we model that as an empty slot for
+			// everything.
+			if eq.WeaponSub == 'V' || eq.WeaponSub == 'X' {
 				return names
 			}
 		}
@@ -84,9 +86,9 @@ func composeLayerNames(animSlot int, eq CharacterEquipment) [5]string {
 		cVar4 = 'F'
 	case 6:
 		cVar4 = 'H'
-		if hasHelmet {
-			cVar4 = eq.Helmet
-			if eq.HelmetSub == 'V' || eq.HelmetSub == 'X' {
+		if hasWeapon {
+			cVar4 = eq.Weapon
+			if eq.WeaponSub == 'V' || eq.WeaponSub == 'X' {
 				return names
 			}
 		}
@@ -105,16 +107,16 @@ func composeLayerNames(animSlot int, eq CharacterEquipment) [5]string {
 		if eq.WeaponHand == 2 {
 			cVar4 = 'J'
 		} else {
-			if hasHelmet && (eq.HelmetCls == 'A' || eq.HelmetCls == 'N' || eq.HelmetCls == 'O') {
+			if hasWeapon && (eq.WeaponCls == 'A' || eq.WeaponCls == 'N' || eq.WeaponCls == 'O') {
 				return names
 			}
 			cVar4 = 'J'
 		}
 	case 17:
-		if !hasHelmet {
+		if !hasWeapon {
 			return names
 		}
-		switch eq.HelmetCls {
+		switch eq.WeaponCls {
 		case 'B', 'C', 'D':
 			cVar4 = 'M'
 		case 'F', 'G', 'M':
@@ -147,42 +149,44 @@ func composeLayerNames(animSlot int, eq CharacterEquipment) [5]string {
 
 	// Layer B (variant B, torso+arms).  2nd-char depends on
 	// cVar4 AND helmet class.
-	b2 := layerBD2ndChar(cVar4, eq, hasHelmet)
+	b2 := layerBD2ndChar(cVar4, eq, hasWeapon)
 	b4 := byte('0')
 	if eq.Torso != 0 {
 		b4 = eq.Torso
 	}
 	names[1] = string([]byte{'M', b2, 'B', b4})
 
-	// Layer C (variant C, helmet).  Only added when a helmet is
-	// equipped and its class letter is in {B, C, D, F, G, M}
+	// Layer C (variant C, the weapon).  Only added when a weapon is
+	// held and its class letter is in {B, C, D, F, G, M}
 	// (engine's early-skip predicate).
-	if hasHelmet {
-		switch eq.HelmetCls {
+	if hasWeapon {
+		switch eq.WeaponCls {
 		case 'B', 'C', 'D', 'F', 'G', 'M':
 			c2 := cVar4
 			if cVar4 == 'V' || cVar4 == 'X' {
 				c2 = 'H'
 			}
-			names[2] = string([]byte{'M', c2, 'C', eq.HelmetCls})
+			names[2] = string([]byte{'M', c2, 'C', eq.WeaponCls})
 		}
 	}
 
-	// Layer D (variant D, face/head).  Same 2nd-char table as B.
-	d2 := layerBD2ndChar(cVar4, eq, hasHelmet)
+	// Layer D (variant D, helmet/head).  Same 2nd-char table as B.
+	d2 := layerBD2ndChar(cVar4, eq, hasWeapon)
 	d4 := byte('0')
-	if eq.Face != 0 {
-		d4 = eq.Face
+	if eq.Helmet != 0 {
+		d4 = eq.Helmet
 	}
 	names[3] = string([]byte{'M', d2, 'D', d4})
 
-	// Layer E (variant E, weapon).  Only when a weapon is held.
-	if eq.Weapon != 0 {
+	// Layer E (variant E, the shield).  Only when a shield is
+	// equipped (and the engine hides it under a two-handed weapon,
+	// via CItemStatistic+0x88 — not modelled here yet).
+	if eq.Shield != 0 {
 		e2 := cVar4
 		if cVar4 == 'V' || cVar4 == 'X' {
 			e2 = 'H'
 		}
-		names[4] = string([]byte{'M', e2, 'E', eq.Weapon})
+		names[4] = string([]byte{'M', e2, 'E', eq.Shield})
 	}
 
 	return names
@@ -190,15 +194,15 @@ func composeLayerNames(animSlot int, eq CharacterEquipment) [5]string {
 
 // layerBD2ndChar reproduces the variant-B/D 2nd-char mapping from
 // FUN_00439b70, for cVar4 in {G, H, J, Z} the engine picks a
-// number/letter based on the helmet's class.  For any other cVar4
-// it falls through to cVar4 unchanged.
-func layerBD2ndChar(cVar4 byte, eq CharacterEquipment, hasHelmet bool) byte {
+// number/letter based on the held weapon's class.  For any other
+// cVar4 it falls through to cVar4 unchanged.
+func layerBD2ndChar(cVar4 byte, eq CharacterEquipment, hasWeapon bool) byte {
 	switch cVar4 {
 	case 'Z':
 		return 'C'
 	case 'G':
-		if hasHelmet {
-			switch eq.HelmetCls {
+		if hasWeapon {
+			switch eq.WeaponCls {
 			case 'E', 'H', 'L':
 				return '1'
 			case 'N':
@@ -211,11 +215,11 @@ func layerBD2ndChar(cVar4 byte, eq CharacterEquipment, hasHelmet bool) byte {
 		}
 		return cVar4
 	case 'H':
-		if hasHelmet {
-			if eq.Helmet == 'O' {
+		if hasWeapon {
+			if eq.Weapon == 'O' {
 				return '4'
 			}
-			switch eq.HelmetCls {
+			switch eq.WeaponCls {
 			case 'I', 'J', 'K':
 				return 'N'
 			case 'N':
@@ -226,10 +230,10 @@ func layerBD2ndChar(cVar4 byte, eq CharacterEquipment, hasHelmet bool) byte {
 		}
 		return cVar4
 	case 'J':
-		if eq.WeaponHand == 2 || !hasHelmet {
+		if eq.WeaponHand == 2 || !hasWeapon {
 			return 'J'
 		}
-		switch eq.HelmetCls {
+		switch eq.WeaponCls {
 		case 'E', 'H', 'L':
 			return 'P'
 		case 'I', 'J', 'K':

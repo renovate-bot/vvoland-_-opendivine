@@ -10,6 +10,8 @@ import (
 
 	"github.com/hajimehoshi/ebiten/v2"
 
+	"grono.dev/opendivine/internal/game/collision"
+	"grono.dev/opendivine/internal/game/mover"
 	"grono.dev/opendivine/pkg/assets/objects"
 	"grono.dev/opendivine/pkg/assets/world"
 )
@@ -30,7 +32,7 @@ func (g *Game) loadRegion(n int) error {
 	g.cells = g.cells[:0]
 	g.insts = g.insts[:0]
 	g.colliders = g.colliders[:0]
-	g.colliderGrid = map[int][]int32{}
+	g.walkGrid = collision.NewGrid()
 	g.floorTiles = map[int16]*ebiten.Image{}
 	g.objSprites = map[int]*sprite{}
 
@@ -77,17 +79,42 @@ func (g *Game) loadRegion(n int) error {
 					inst.SpriteH = int(e.Height)
 				}
 			}
-			// Build collision rect for blocker objects.
-			// Width-zero / no-Z entries (decals, ground stains) don't block.
-			// A door spawned open (no sb_closed) starts passable.
-			if g.collide0 != nil && catID < len(g.collide0.Records) {
+			// Rasterize the object's cube into the walkability grid
+			// (re_docs/formats/collide.md, fcn.0056d720): rect origin
+			// = world position + the collide record's anchor, u span
+			// from x_extent, v span from width/2; the mask derives
+			// from the object flags word. The cube `type` field plays
+			// NO part in the movement path — fcn.00572100 gates the
+			// rasterize call purely on the derived mask (0x5721ec:
+			// stamp iff mask != 0 || height != 0), never on i16[6].
+			// An earlier `cr.Type != 0` gate wrongly dropped the many
+			// solid walls whose collide record has type 0 (e.g. the
+			// tall stone walls id 4220/4221/4224, mask 0x009), letting
+			// the player walk straight through them.
+			if g.collide0 != nil && catID >= 0 && catID < len(g.collide0.Records) {
 				cr := g.collide0.Records[catID]
-				if cr.Type != 0 && cr.ZHeight > 0 && cr.Width > 0 {
+				mask := objectMask(cat, &inst)
+				// Keep a collider for any object that blocks now (mask
+				// != 0) or that can start blocking on use (an open door
+				// has mask 0 but must re-stamp when closed).
+				if mask != 0 || inst.Interactive {
+					cube := collision.Cube{
+						X:       wx + int(cr.AnchorX),
+						Y:       wy + int(cr.AnchorY),
+						XExtent: max(int(cr.XExtent), 0),
+						Width:   int(cr.Width),
+						Mask:    mask,
+					}
+					g.walkGrid.Stamp(cube) // no-op when mask == 0
 					hw := max(int(cr.Width)/2, 1)
-					box := aabb{X: wx - hw, Y: wy - hw, W: hw * 2, H: hw * 2}
+					box := aabb{
+						X: cube.X,
+						Y: cube.Y - hw,
+						W: max(cube.XExtent, 1),
+						H: hw,
+					}
 					inst.ColliderIdx = len(g.colliders)
-					enabled := !(inst.ToggleCollider && inst.Open)
-					g.colliders = append(g.colliders, collider{box: box, enabled: enabled})
+					g.colliders = append(g.colliders, collider{cube: cube, box: box})
 				}
 			}
 			g.insts = append(g.insts, inst)
@@ -102,14 +129,18 @@ func (g *Game) loadRegion(n int) error {
 		}
 		return g.cells[i].CellX < g.cells[j].CellX
 	})
-	// Painter's-algorithm sort by Y (foot position) only.
-	// The engine's depth key is `out_Z = (65536 - in_Y) * 2` from
-	// `FUN_004f7b40`, i.e. depth = -Y.
+	// Baseline emission order for the topological sort: Y (foot position),
+	// then elevation. This fixes the draw order of NON-overlapping sprites
+	// only — overlapping ones get explicit dependency edges from the
+	// CSpriteSorter comparator port (render.go / sort.go,
+	// re_docs/render-trace.md). Note FUN_004f7b40's `(65536 - in_Y) * 2` is
+	// the FX-layer depth key, NOT the world-object sort (retracted in
+	// render-trace.md); the engine's own baseline is its visible-cell-list
+	// iteration order, which is undocumented — Y-then-elevation is our
+	// heuristic stand-in.
 	// Layer is a per-object ELEVATION (10-bit `& 0x3ff` in the world record),
 	// not a draw-order priority, sorting by Layer first puts walls over floor
 	// stains/decals incorrectly.
-	// For ties at the same Y, fall back to elevation so a flask-on-table draws
-	// after the table.
 	sort.SliceStable(g.insts, func(i, j int) bool {
 		if g.insts[i].Y != g.insts[j].Y {
 			return g.insts[i].Y < g.insts[j].Y
@@ -117,26 +148,35 @@ func (g *Game) loadRegion(n int) error {
 		return g.insts[i].Layer < g.insts[j].Layer
 	})
 
-	// Bucket colliders into 64x64-px cells for fast spatial queries.
-	for i := range g.colliders {
-		c := g.colliders[i].box
-		minCX := c.X / cellPx
-		maxCX := (c.X + c.W - 1) / cellPx
-		minCY := c.Y / cellPx
-		maxCY := (c.Y + c.H - 1) / cellPx
-		for cy := minCY; cy <= maxCY; cy++ {
-			for cx := minCX; cx <= maxCX; cx++ {
-				if cx < 0 || cy < 0 || cx >= worldCellsX || cy >= worldCellsY {
-					continue
-				}
-				k := cy*worldCellsX + cx
-				g.colliderGrid[k] = append(g.colliderGrid[k], int32(i))
-			}
-		}
-	}
-	log.Printf("region %d: %d floor cells, %d object instances, %d colliders, %d grid buckets",
-		n, len(g.cells), len(g.insts), len(g.colliders), len(g.colliderGrid))
+	// Rebuild the mover against the fresh grid, keeping the player where
+	// it stood (position carries across region switches).
+	g.mover = mover.New(g.walkGrid, playerMask, g.player.X, g.player.Y, heroWalkSpeed)
+
+	log.Printf("region %d: %d floor cells, %d object instances, %d colliders",
+		n, len(g.cells), len(g.insts), len(g.colliders))
 	return nil
+}
+
+// objectMask derives the instance's walkability-grid mask from its
+// catalogue flags word and current open/locked state
+// (re_docs/formats/collide.md; the engine re-derives it on every
+// CObject::Use re-stamp).
+func objectMask(cat *objects.Object, inst *objectInst) uint16 {
+	if cat == nil {
+		return collision.MaskStatic
+	}
+	door := cat.HasS(objects.SDoor)
+	return collision.ObjectMask(collision.ObjectState{
+		PlayerBlock:   cat.HasS(objects.SPlayerBlock),
+		WalkThrough:   cat.HasS(objects.SWalkThrough),
+		Door:          door,
+		Closed:        door && !inst.Open,
+		Locked:        inst.Locked,
+		Light:         cat.HasS(objects.SLight),
+		Lever:         cat.HasS(objects.SLever),
+		WalkOn:        cat.HasSB(objects.SBWalkOn),
+		NoLookThrough: cat.HasSB(objects.SBNoLookThrough),
+	})
 }
 
 // classifyInteraction seeds the instance's interaction state from the

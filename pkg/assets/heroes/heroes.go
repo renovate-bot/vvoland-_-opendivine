@@ -22,9 +22,11 @@ import (
 //
 // Layout (matches engine reads in FUN_0050ac30 lines 224-238):
 //
-//	+0  Offset   uint32  byte position into the frame's group
-//	                     decompression buffer (not absolute in
-//	                     the .bic file)
+//	+0  Offset   uint32  global byte offset into the concatenation of
+//	                     every block's decompressed buffer (never
+//	                     resets); for the FIRST frame of a group it
+//	                     instead holds the block's .bic file offset
+//	                     (see BIC.Frame)
 //	+4  Size     uint32  byte size of frame data
 //	+8  XMin     int16   sprite bbox left edge in COMPOSITE coords
 //	+10 YMin     int16   sprite bbox top edge in composite coords
@@ -223,8 +225,9 @@ func lzoUncompressedSize(src []byte) (int, error) {
 // Transparent pixels are alpha=0.
 //
 // IDC offsets for the first frame of each .key group are NOT the frame's global
-// decompressed offset - they encode the .bic file offset of that block's LZO
-// data (BlobOff + 4).
+// decompressed offset - they hold the .bic file offset of that block
+// (= BlobOff, pointing at the compressed_size u32; verified on surfA: record
+// 480 holds 637203 = the MAA1 block offset).
 // Detect those by matching frameID against block boundaries and substitute the
 // correct global offset (the block's cumOff, with frame at local 0).
 func (b *BIC) Frame(rec IDCRecord, frameID int) (*image.NRGBA, error) {

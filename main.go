@@ -13,6 +13,7 @@
 //	Shift              move faster
 //	F7 / F8            toggle floor / object render
 //	F9                 toggle camera follow
+//	F10                toggle collider (walkability) overlay
 //	F12                save screenshot
 //	Esc                quit
 package main

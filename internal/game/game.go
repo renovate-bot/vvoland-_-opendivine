@@ -6,6 +6,8 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 
 	"grono.dev/opendivine/internal/game/character"
+	"grono.dev/opendivine/internal/game/collision"
+	"grono.dev/opendivine/internal/game/mover"
 	"grono.dev/opendivine/pkg/assets/collide"
 	"grono.dev/opendivine/pkg/assets/cpacked"
 	"grono.dev/opendivine/pkg/assets/objects"
@@ -24,12 +26,15 @@ type Game struct {
 
 	cells     []floorCell  // all populated cells, sorted by (CellY, CellX)
 	insts     []objectInst // all placed objects, sorted by (Layer, Y)
-	colliders []collider   // axis-aligned blocker boxes (player can't pass)
-	// colliderGrid: 64x64-pixel bucket index over g.colliders.  Key
-	// = cellY*worldCellsX + cellX; value = indices into g.colliders
-	// for any rect touching that cell.  A wall larger than a cell
-	// appears in every cell its rect overlaps.
-	colliderGrid map[int][]int32
+	colliders []collider   // per-object stamps into walkGrid + reach boxes
+	// walkGrid: the engine's walkability cell grid; objects rasterize
+	// their cubes into it and movers test cells by mask
+	// (re_docs/formats/collide.md).
+	walkGrid *collision.Grid
+	// mover drives the player with the engine's leg-based stepper
+	// (internal/game/mover); it is the source of truth for player
+	// position and is rebuilt with the grid on each region load.
+	mover *mover.Mover
 
 	camX, camY float64 // world pixel at screen center
 	zoom       float64 // output_pixel / world_pixel
@@ -40,10 +45,11 @@ type Game struct {
 	hasDest      bool
 	cameraFollow bool // true: camera locks to player; false: free pan
 
-	showFloors  bool   // F7 toggle
-	showObjects bool   // F8 toggle
-	wantShot    bool   // F12: capture next frame to screenshot
-	shotPath    string // -screenshot flag: write to this path then exit
+	showFloors    bool   // F7 toggle
+	showObjects   bool   // F8 toggle
+	showColliders bool   // F10 toggle: walkability-grid overlay
+	wantShot      bool   // F12: capture next frame to screenshot
+	shotPath      string // -screenshot flag: write to this path then exit
 }
 
 func (g *Game) Layout(outsideWidth, outsideHeight int) (int, int) {

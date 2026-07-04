@@ -15,7 +15,7 @@ reverse-engineering knowledge base behind it is complete
 - [x] The whole world renders — terrain, decals, objects, with the
   original engine's depth sorting
 - [x] Walk around: click-to-walk and WASD, camera follow, zoom
-- [x] Walls and furniture block you (approximate; not engine-exact yet)
+- [x] Walls and furniture block you (the engine's cell-grid collision; opening a door really unblocks its cells)
 - [ ] Walking around obstacles automatically (pathfinding)
 - [ ] Roofs hide when you step inside a building
 - [ ] Day/night cycle (light tint, clock)
