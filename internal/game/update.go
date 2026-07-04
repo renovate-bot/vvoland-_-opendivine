@@ -8,6 +8,9 @@ import (
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
+
+	"grono.dev/opendivine/internal/game/collision"
+	"grono.dev/opendivine/pkg/assets/objects"
 )
 
 var regionKeys = []ebiten.Key{
@@ -202,7 +205,7 @@ func (g *Game) tryInteract(wx, wy float64) bool {
 
 func (g *Game) interactionDistance(in *objectInst) float64 {
 	if in.ColliderIdx >= 0 && in.ColliderIdx < len(g.colliders) {
-		return g.colliders[in.ColliderIdx].cube.Distance(g.player.X, g.player.Y)
+		return pointAABBDistance(g.player.X, g.player.Y, g.colliders[in.ColliderIdx].box)
 	}
 
 	w, h := in.SpriteW, in.SpriteH
@@ -282,10 +285,12 @@ func (g *Game) objectContainsWorld(in *objectInst, wx, wy float64) bool {
 	return dx*dx+dy*dy < footHitR2
 }
 
-// useObject toggles a door/chest between open and closed, flipping a door's
-// collider so an open door is passable. sb_locked gates opening outright
-// (key-based unlocking is not wired yet). A door is never closed onto the
-// player.
+// useObject toggles a door/chest between open and closed. State
+// changes re-rasterize the object's cube with a freshly derived mask —
+// the engine's remove+add on CObject::Use (re_docs/formats/collide.md)
+// — so an open door stamps nothing and a closed one blocks again.
+// sb_locked gates opening outright (key-based unlocking is not wired
+// yet). A door is never closed onto the player.
 func (g *Game) useObject(in *objectInst) {
 	if in.Locked && !in.Open {
 		return
@@ -295,43 +300,39 @@ func (g *Game) useObject(in *objectInst) {
 	}
 	in.Open = !in.Open
 	if in.ToggleCollider && in.ColliderIdx >= 0 {
-		g.colliders[in.ColliderIdx].cube.Enabled = !in.Open
-	}
-}
-
-// playerOnCollider reports whether the player's footprint overlaps a
-// collider's cube, so a door can't be closed onto the player. Uses the
-// same narrow phase as movement, ignoring the cube's disabled state
-// (an open door's cube is disabled precisely when this check matters).
-func (g *Game) playerOnCollider(idx int) bool {
-	const playerR = 6
-	c := g.colliders[idx].cube
-	return c.Distance(g.player.X, g.player.Y) < c.Width/2+playerR
-}
-
-// playerBlocked reports whether a mover at (px, py) is blocked by any
-// enabled cube — the engine's sqrt-distance narrow phase
-// (re_docs/formats/collide.md) over a cell-grid broad phase (the
-// engine's own shape: FUN_00415120 over the FUN_00571df0 cube
-// cell-query). The player overlaps a handful of buckets so the
-// per-tick cost is bounded by max-colliders-per-bucket.
-func (g *Game) playerBlocked(px, py float64) bool {
-	const playerR = 6 // hero footprint radius in world pixels
-	pb := aabb{X: int(px) - playerR, Y: int(py) - playerR, W: playerR * 2, H: playerR * 2}
-	minCX := pb.X / cellPx
-	maxCX := (pb.X + pb.W - 1) / cellPx
-	minCY := pb.Y / cellPx
-	maxCY := (pb.Y + pb.H - 1) / cellPx
-	for cy := minCY; cy <= maxCY; cy++ {
-		for cx := minCX; cx <= maxCX; cx++ {
-			for _, idx := range g.colliderGrid[cy*worldCellsX+cx] {
-				if g.colliders[idx].cube.Blocks(px, py, playerR) {
-					return true
-				}
-			}
+		c := &g.colliders[in.ColliderIdx]
+		g.walkGrid.Unstamp(c.cube)
+		var cat *objects.Object
+		if g.catalog != nil && in.ObjID >= 0 && in.ObjID < len(g.catalog.Entries) {
+			cat = &g.catalog.Entries[in.ObjID]
 		}
+		c.cube.Mask = objectMask(cat, in)
+		g.walkGrid.Stamp(c.cube)
 	}
-	return false
+}
+
+// playerOnCollider reports whether the player stands on a cell of the
+// collider's stamp rectangle, so a door can't be closed onto the
+// player (the engine's movers are cell-granular, so cell membership is
+// the natural test).
+func (g *Game) playerOnCollider(idx int) bool {
+	return g.colliders[idx].cube.ContainsCell(int(g.player.X), int(g.player.Y))
+}
+
+// playerMask is what player movement tests candidate cells with. The
+// engine's behaviour steppers use mask 0x13 (static | player-block |
+// agent occupancy); we additionally include the closed-door bit so the
+// player cannot walk through a closed unlocked door — the original
+// gameplay clearly blocks there, but the exact mask the player path
+// uses is not pinned in collide.md yet (the stepper mask is).
+const playerMask = collision.MoverMask | collision.MaskDoorClosed
+
+// playerBlocked reports whether the cell containing (px, py) is
+// blocked for the player — the engine's cell-granular walkability test
+// (re_docs/formats/collide.md; movers carry no radius and test whole
+// cells).
+func (g *Game) playerBlocked(px, py float64) bool {
+	return g.walkGrid.Blocked(int(px), int(py), playerMask)
 }
 
 func clamp(v, lo, hi float64) float64 {

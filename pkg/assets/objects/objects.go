@@ -24,12 +24,15 @@ const EntrySize = 0x94
 // mark what the object is; SClosed/SLocked are the initial runtime
 // state.
 const (
-	SKey    = 1 << 4  // value: required key id
-	SDoor   = 1 << 5  // value: marks a door
-	SLever  = 1 << 6  // value: marks a lever
-	SChest  = 1 << 10 // value: marks a chest/container
-	SLocked = 1 << 21 // bool: locked (hard gate until unlocked)
-	SClosed = 1 << 25 // bool: starts closed
+	SKey         = 1 << 4  // value: required key id
+	SDoor        = 1 << 5  // value: marks a door
+	SLever       = 1 << 6  // value: marks a lever
+	SChest       = 1 << 10 // value: marks a chest/container
+	SLight       = 1 << 11 // value: light source
+	SLocked      = 1 << 21 // bool: locked (hard gate until unlocked)
+	SWalkThrough = 1 << 24 // bool: never blocks movement
+	SClosed      = 1 << 25 // bool: starts closed
+	SPlayerBlock = 1 << 28 // bool: blocks the player specifically
 )
 
 // Static-behaviour bit indices in `Object.SBFlags`.

@@ -4,86 +4,118 @@ package collision
 
 import "testing"
 
-// TestCubeBlocks locks down the documented cube semantics
-// (re_docs/formats/collide.md): the box spans [X, X+Width] with centre
-// anchor + Width/2 (NOT centred on the anchor — the pre-engine
-// implementation's square-AABB-around-the-anchor is the regression
-// this guards), XExtent extends the reach rightward when it exceeds
-// Width, and a disabled cube (open door) never blocks.
-func TestCubeBlocks(t *testing.T) {
+// TestObjectMask locks down the engine's mask derivation order
+// (re_docs/formats/collide.md): player_block wins over door, doors
+// contribute closed/locked bits (an open unlocked door stamps
+// nothing), walk_through kills default blockers, and hard blockers
+// strip the climb bit.
+func TestObjectMask(t *testing.T) {
 	tests := []struct {
-		name      string
-		cube      Cube
-		px, py, r float64
-		want      bool
+		name string
+		o    ObjectState
+		want uint16
 	}{
-		{
-			name: "centre of the symmetric box blocks",
-			cube: Cube{X: 100, Y: 100, Width: 40, Enabled: true},
-			px:   120, py: 100, r: 6, want: true,
-		},
-		{
-			name: "left of the anchor is outside (box is not centred on the anchor)",
-			cube: Cube{X: 100, Y: 100, Width: 40, Enabled: true},
-			px:   80, py: 100, r: 6, want: false,
-		},
-		{
-			name: "just past the box right edge with margin",
-			cube: Cube{X: 100, Y: 100, Width: 40, Enabled: true},
-			px:   170, py: 100, r: 6, want: false,
-		},
-		{
-			name: "x_extent reach blocks beyond width",
-			cube: Cube{X: 100, Y: 100, Width: 40, XExtent: 120, Enabled: true},
-			px:   200, py: 100, r: 6, want: true,
-		},
-		{
-			name: "vertical clearance is width/2 + r",
-			cube: Cube{X: 100, Y: 100, Width: 40, Enabled: true},
-			px:   120, py: 130, r: 6, want: false,
-		},
-		{
-			name: "vertically inside width/2 + r",
-			cube: Cube{X: 100, Y: 100, Width: 40, Enabled: true},
-			px:   120, py: 124, r: 6, want: true,
-		},
-		{
-			name: "disabled cube never blocks",
-			cube: Cube{X: 100, Y: 100, Width: 40, Enabled: false},
-			px:   120, py: 100, r: 6, want: false,
-		},
+		{"default object blocks", ObjectState{}, MaskStatic},
+		{"walk-through decal stamps nothing", ObjectState{WalkThrough: true}, 0},
+		{"closed unlocked door", ObjectState{Door: true, Closed: true}, MaskDoorClosed},
+		{"closed locked door", ObjectState{Door: true, Closed: true, Locked: true}, MaskDoorClosed | MaskStatic},
+		{"open unlocked door stamps nothing", ObjectState{Door: true}, 0},
+		{"player-block", ObjectState{PlayerBlock: true}, MaskPlayerBlock},
+		{"player-block walk-through", ObjectState{PlayerBlock: true, WalkThrough: true}, 0},
+		{"player-block wins over door", ObjectState{PlayerBlock: true, Door: true, Closed: true}, MaskPlayerBlock},
+		{"walk-on stair", ObjectState{WalkThrough: true, WalkOn: true}, MaskWalkOn},
+		{"hard blocker strips climb", ObjectState{WalkOn: true}, MaskStatic},
+		{"light and lever extras", ObjectState{Light: true, Lever: true}, MaskStatic | MaskLight | MaskLever},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := tc.cube.Blocks(tc.px, tc.py, tc.r); got != tc.want {
-				t.Errorf("Cube%+v.Blocks(%v, %v, %v) = %v, want %v",
-					tc.cube, tc.px, tc.py, tc.r, got, tc.want)
+			if got := ObjectMask(tc.o); got != tc.want {
+				t.Errorf("ObjectMask(%+v) = %#x, want %#x", tc.o, got, tc.want)
 			}
 		})
 	}
 }
 
-// TestCubeDistance pins the reach metric interaction checks share with
-// blocking: zero on the core segment (which is inset by Width/2 so the
-// capsule's on-axis span is exactly [X, X+reach]), Euclidean off it.
-func TestCubeDistance(t *testing.T) {
-	c := Cube{X: 100, Y: 100, Width: 40, XExtent: 120, Enabled: true}
-	// Core segment runs [120, 200]; capsule surface spans [100, 220] on-axis.
-	if d := c.Distance(150, 100); d != 0 {
-		t.Errorf("on-segment distance = %v, want 0", d)
+// TestStampRectangle pins the rasterizer's inclusive cell rectangle
+// (fcn.0056d720): u spans (x+y)>>5 .. (x+y+x_extent)>>5 and v spans
+// (y−width/2)>>5 .. y>>5.
+func TestStampRectangle(t *testing.T) {
+	g := NewGrid()
+	// x+y = 1024 → u ∈ [32, 35] (x_extent 96); y = 512 → v ∈ [14, 16]
+	// (width 128 → y−64).
+	c := Cube{X: 512, Y: 512, XExtent: 96, Width: 128, Mask: MaskStatic}
+	g.Stamp(c)
+
+	for _, p := range []struct{ x, y int }{
+		{512, 512},           // anchor cell (u32, v16)
+		{512 + 96, 512},      // right edge (u35, v16)
+		{512 + 64, 512 - 64}, // top edge (v14), u still in range
+	} {
+		if !g.Blocked(p.x, p.y, MoverMask) {
+			t.Errorf("cell at (%d,%d) not blocked, want blocked", p.x, p.y)
+		}
 	}
-	if d := c.Distance(120, 130); d != 30 {
-		t.Errorf("below-core distance = %v, want 30", d)
+	// Just outside on each axis.
+	if g.Blocked(512+96+32, 512, MoverMask) { // u36
+		t.Error("cell right of the rect blocked, want free")
 	}
-	if d := c.Distance(240, 100); d != 40 {
-		t.Errorf("past-reach distance = %v, want 40 (core ends at 200)", d)
+	if g.Blocked(512, 512-96, MoverMask) { // v13 (u drops to 29 — also outside)
+		t.Error("cell above the rect blocked, want free")
 	}
-	// On-axis blocking edge: the capsule surface ends at X+reach = 220,
-	// so with mover radius 6 the strict-< threshold sits at 226.
-	if c.Blocks(226, 100, 6) {
-		t.Error("Blocks at X+reach+r, want free (strict <)")
+	if g.Blocked(512-33, 512, MoverMask) { // u31
+		t.Error("cell left of the rect blocked, want free")
 	}
-	if !c.Blocks(225, 100, 6) {
-		t.Error("no Blocks just inside X+reach+r, want blocked")
+}
+
+// TestRefcountOverlap pins the blocker refcount semantics
+// (fcn.0056d890): where two blockers overlap, removing one leaves the
+// cell blocked; removing both frees it.
+func TestRefcountOverlap(t *testing.T) {
+	g := NewGrid()
+	a := Cube{X: 512, Y: 512, Width: 64, Mask: MaskStatic}
+	b := Cube{X: 512, Y: 512, Width: 64, Mask: MaskStatic}
+	g.Stamp(a)
+	g.Stamp(b)
+	g.Unstamp(a)
+	if !g.Blocked(512, 512, MoverMask) {
+		t.Error("overlapped cell freed by removing one of two blockers")
+	}
+	g.Unstamp(b)
+	if g.Blocked(512, 512, MoverMask) {
+		t.Error("cell still blocked after removing both blockers")
+	}
+}
+
+// TestDoorToggle pins the remove+add door transition: a closed locked
+// door blocks movers; re-stamping it open and unlocked frees the cell
+// while an unrelated wall in the same cell keeps blocking.
+func TestDoorToggle(t *testing.T) {
+	g := NewGrid()
+	door := Cube{X: 512, Y: 512, Width: 64,
+		Mask: ObjectMask(ObjectState{Door: true, Closed: true, Locked: true})}
+	g.Stamp(door)
+	if !g.Blocked(512, 512, MoverMask) {
+		t.Fatal("locked door does not block")
+	}
+	g.Unstamp(door)
+	door.Mask = ObjectMask(ObjectState{Door: true}) // open, unlocked
+	g.Stamp(door)
+	if g.Blocked(512, 512, MoverMask) {
+		t.Error("open door still blocks movers")
+	}
+
+	wall := Cube{X: 512, Y: 512, Width: 64, Mask: MaskStatic}
+	g.Stamp(wall)
+	if !g.Blocked(512, 512, MoverMask) {
+		t.Error("wall sharing the door's cell does not block")
+	}
+}
+
+// TestOutOfGrid: coordinates outside the engine's index gate are not
+// walkable.
+func TestOutOfGrid(t *testing.T) {
+	g := NewGrid()
+	if !g.Blocked(-100, -100, MoverMask) {
+		t.Error("negative-index cell walkable, want blocked")
 	}
 }

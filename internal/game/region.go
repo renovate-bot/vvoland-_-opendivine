@@ -31,7 +31,7 @@ func (g *Game) loadRegion(n int) error {
 	g.cells = g.cells[:0]
 	g.insts = g.insts[:0]
 	g.colliders = g.colliders[:0]
-	g.colliderGrid = map[int][]int32{}
+	g.walkGrid = collision.NewGrid()
 	g.floorTiles = map[int16]*ebiten.Image{}
 	g.objSprites = map[int]*sprite{}
 
@@ -78,27 +78,33 @@ func (g *Game) loadRegion(n int) error {
 					inst.SpriteH = int(e.Height)
 				}
 			}
-			// Build the collision cube for blocker objects
-			// (re_docs/formats/collide.md): anchored at the object's
-			// world position, spanning [wx, wx+Width] horizontally
-			// (centre = anchor + width/2 — NOT centred on the anchor)
-			// and ±Width/2 vertically, with XExtent as the asymmetric
-			// rightward reach. Width-zero / no-Z entries (decals,
-			// ground stains) don't block. A door spawned open (no
-			// sb_closed) starts passable.
+			// Rasterize the object's cube into the walkability grid
+			// (re_docs/formats/collide.md, fcn.0056d720): rect origin
+			// = world position + the collide record's anchor, u span
+			// from x_extent, v span from width/2; the mask derives
+			// from the object flags word (cube `type` plays no part
+			// in the engine — we still require a non-degenerate cube
+			// as a conservative placement gate, since the engine's
+			// exact skip condition for cube-less sprites is not
+			// pinned).
 			if g.collide0 != nil && catID < len(g.collide0.Records) {
 				cr := g.collide0.Records[catID]
 				if cr.Type != 0 && cr.ZHeight > 0 && cr.Width > 0 {
 					cube := collision.Cube{
-						X:       float64(wx),
-						Y:       float64(wy),
-						Width:   float64(cr.Width),
-						XExtent: float64(max(cr.XExtent, 0)),
-						Enabled: !(inst.ToggleCollider && inst.Open),
+						X:       wx + int(cr.AnchorX),
+						Y:       wy + int(cr.AnchorY),
+						XExtent: max(int(cr.XExtent), 0),
+						Width:   int(cr.Width),
+						Mask:    objectMask(cat, &inst),
 					}
-					reach := max(int(cr.Width), int(cr.XExtent))
+					g.walkGrid.Stamp(cube)
 					hw := max(int(cr.Width)/2, 1)
-					box := aabb{X: wx, Y: wy - hw, W: reach, H: hw * 2}
+					box := aabb{
+						X: cube.X,
+						Y: cube.Y - hw,
+						W: max(cube.XExtent, 1),
+						H: hw,
+					}
 					inst.ColliderIdx = len(g.colliders)
 					g.colliders = append(g.colliders, collider{cube: cube, box: box})
 				}
@@ -134,26 +140,31 @@ func (g *Game) loadRegion(n int) error {
 		return g.insts[i].Layer < g.insts[j].Layer
 	})
 
-	// Bucket colliders into 64x64-px cells for fast spatial queries.
-	for i := range g.colliders {
-		c := g.colliders[i].box
-		minCX := c.X / cellPx
-		maxCX := (c.X + c.W - 1) / cellPx
-		minCY := c.Y / cellPx
-		maxCY := (c.Y + c.H - 1) / cellPx
-		for cy := minCY; cy <= maxCY; cy++ {
-			for cx := minCX; cx <= maxCX; cx++ {
-				if cx < 0 || cy < 0 || cx >= worldCellsX || cy >= worldCellsY {
-					continue
-				}
-				k := cy*worldCellsX + cx
-				g.colliderGrid[k] = append(g.colliderGrid[k], int32(i))
-			}
-		}
-	}
-	log.Printf("region %d: %d floor cells, %d object instances, %d colliders, %d grid buckets",
-		n, len(g.cells), len(g.insts), len(g.colliders), len(g.colliderGrid))
+	log.Printf("region %d: %d floor cells, %d object instances, %d colliders",
+		n, len(g.cells), len(g.insts), len(g.colliders))
 	return nil
+}
+
+// objectMask derives the instance's walkability-grid mask from its
+// catalogue flags word and current open/locked state
+// (re_docs/formats/collide.md; the engine re-derives it on every
+// CObject::Use re-stamp).
+func objectMask(cat *objects.Object, inst *objectInst) uint16 {
+	if cat == nil {
+		return collision.MaskStatic
+	}
+	door := cat.HasS(objects.SDoor)
+	return collision.ObjectMask(collision.ObjectState{
+		PlayerBlock:   cat.HasS(objects.SPlayerBlock),
+		WalkThrough:   cat.HasS(objects.SWalkThrough),
+		Door:          door,
+		Closed:        door && !inst.Open,
+		Locked:        inst.Locked,
+		Light:         cat.HasS(objects.SLight),
+		Lever:         cat.HasS(objects.SLever),
+		WalkOn:        cat.HasSB(objects.SBWalkOn),
+		NoLookThrough: cat.HasSB(objects.SBNoLookThrough),
+	})
 }
 
 // classifyInteraction seeds the instance's interaction state from the

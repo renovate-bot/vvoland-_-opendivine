@@ -50,11 +50,10 @@ type objectInst struct {
 	ColliderIdx    int
 }
 
-// collider is one blocker: the engine cube shape for the narrow phase
-// plus its bounding box for grid bucketing and reach queries. A door's
-// cube is disabled while it is open so the player can walk through;
-// this mirrors the engine un-occupying the collision grid on
-// CObject::Use (re_docs/object-interaction.md).
+// collider is one object's stamp into the walkability grid (its cube
+// rectangle + current mask, kept so state changes can re-rasterize:
+// the engine's remove+add on CObject::Use) plus a world-space box for
+// interaction reach queries.
 type collider struct {
 	cube collision.Cube
 	box  aabb

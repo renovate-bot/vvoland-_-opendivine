@@ -1,67 +1,207 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
-// Package collision implements the engine's cube-based movement
-// collision (re_docs/formats/collide.md): each object whose collide
-// record has Type != 0 contributes a cube anchored at the object's
-// world position (the engine overwrites the record's file anchors with
-// world X/Y at load), and movement runs a sqrt-distance test of the
-// mover against the cube's width / x_extent.
+// Package collision implements the engine's movement collision
+// (re_docs/formats/collide.md): there is no per-move geometric test —
+// each placed object's collide cube is RASTERIZED into a cell-flag
+// grid at placement (an inclusive rectangle in iso cell space), and
+// movers test whole cells by flag mask. Doors change state by
+// re-rasterizing with a new mask.
 package collision
 
-import "math"
+// Cell-flag bits, as stamped by the engine's rasterizer and tested by
+// its walkability function (fcn.0056f3c0). Movers test with
+// MaskStatic|MaskPlayerBlock|MaskAgent (0x13).
+const (
+	MaskStatic      uint16 = 0x0001 // hard blocker (default objects; locked doors; map records)
+	MaskPlayerBlock uint16 = 0x0002 // sb_player_block objects
+	MaskDoorClosed  uint16 = 0x0004 // closed door (sight/line tests)
+	MaskSight       uint16 = 0x0008 // sb_no_look_through
+	MaskAgent       uint16 = 0x0010 // an agent's leg-destination occupancy
+	MaskLight       uint16 = 0x0080 // sb_light
+	MaskLever       uint16 = 0x0100 // sb_lever
+	MaskWalkOn      uint16 = 0x0400 // sb_walk_on climb cells (height-gated)
+)
 
-// Cube is one object's collision shape in the ground plane.
-//
-// Per the collide record semantics: the anchor (X, Y) is the object's
-// world position; Width is the symmetric collision-box width read as
-// centre = anchor + width/2 (FUN_004eca40/FUN_00448020), so the box
-// spans [X, X+Width] horizontally and, per the depth-sort mirrors,
-// ±Width/2 vertically around Y; XExtent is the asymmetric rightward
-// reach (the right-edge offset from the anchor, which can exceed
-// Width for off-centre sprites).
-//
-// The exact engine block primitive is diffuse (collide.md 🟡), but the
-// documented narrow phase is a Euclidean distance test against
-// width/x_extent. We model that as a capsule whose on-axis span is
-// exactly [X, X+max(Width, XExtent)]: the core segment runs from
-// X+Width/2 to X+reach−Width/2 with radius Width/2, so a centred
-// sprite degenerates to the engine's documented circle at
-// anchor+width/2 and an off-centre one extends to its x_extent right
-// edge.
-type Cube struct {
-	X, Y    float64 // anchor = object world position
-	Width   float64 // symmetric box width (radius = Width/2)
-	XExtent float64 // asymmetric rightward reach; 0 or < Width for most sprites
-	Enabled bool    // false while a door stands open
+// MoverMask is what the engine's movement steppers test candidate
+// cells with (mask 0x13 at the fcn.0056f3c0 call sites).
+const MoverMask = MaskStatic | MaskPlayerBlock | MaskAgent
+
+// gridMax is the engine's valid-index bound (index <= 0x200800 gates
+// every grid access).
+const gridMax = 0x200800
+
+// Grid is the walkability grid: the engine's worldmap cell array
+// ([0x74eca0]) reduced to the fields movement needs. Cells are
+// addressed by the engine's own index formula v<<10 + u with
+// u = (x+y)>>5, v = y>>5 — including its aliasing for u > 1023, so
+// stamps and tests always agree with the original.
+type Grid struct {
+	flags []uint16
+	// blockRef is the engine's per-cell blocker refcount (the top
+	// nibble of the flags word in the original; kept separate here):
+	// stamps with MaskStatic|MaskPlayerBlock increment it, removals
+	// decrement, and flag bits clear only when it reaches zero.
+	blockRef []uint8
 }
 
-// reach is the cube's full on-axis extent from the anchor.
-func (c *Cube) reach() float64 {
-	return math.Max(c.Width, c.XExtent)
-}
-
-// segment returns the capsule core's start and end X (end >= start).
-func (c *Cube) segment() (x0, x1 float64) {
-	r := c.Width / 2
-	x0 = c.X + r
-	x1 = math.Max(c.X+c.reach()-r, x0)
-	return x0, x1
-}
-
-// Blocks reports whether a mover at (px, py) with radius r intersects
-// the cube — the sqrt-distance narrow phase.
-func (c *Cube) Blocks(px, py, r float64) bool {
-	if !c.Enabled {
-		return false
+// NewGrid returns an empty walkability grid.
+func NewGrid() *Grid {
+	return &Grid{
+		flags:    make([]uint16, gridMax+1),
+		blockRef: make([]uint8, gridMax+1),
 	}
-	return c.Distance(px, py) < c.Width/2+r
 }
 
-// Distance returns the Euclidean distance from a point to the cube's
-// core segment (0 when on the segment). Interaction reach checks use
-// it too, so reach and blocking agree on the shape.
-func (c *Cube) Distance(px, py float64) float64 {
-	x0, x1 := c.segment()
-	cx := math.Min(math.Max(px, x0), x1)
-	return math.Hypot(px-cx, py-c.Y)
+// cellIndex maps world coordinates to the engine's cell index:
+// u = (x+y)>>5, v = y>>5, index = v<<10 + u (fcn.0056d720 and every
+// other site). ok is false outside the engine's index gate.
+func cellIndex(x, y int) (int, bool) {
+	u := (x + y) >> 5
+	v := y >> 5
+	idx := v<<10 + u
+	return idx, idx >= 0 && idx <= gridMax
+}
+
+// Blocked reports whether the cell containing world (x, y) has any of
+// the mask bits set — the walkability core (destination-cell test of
+// fcn.0056f3c0; the per-direction corner chains and the climb gate
+// belong to the leg stepper and are not modelled yet).
+func (g *Grid) Blocked(x, y int, mask uint16) bool {
+	idx, ok := cellIndex(x, y)
+	if !ok {
+		return true // out of the engine's grid = not walkable
+	}
+	return g.flags[idx]&mask != 0
+}
+
+// Cube is one object's stamp parameters, kept so the object can
+// re-rasterize on state change (the engine's remove+add on door
+// toggle).
+type Cube struct {
+	X, Y    int // object world position + collide record anchor_x/anchor_y
+	XExtent int // collide i16[3]: spans the iso u axis
+	Width   int // collide i16[5]: width/2 spans the v axis
+	Mask    uint16
+}
+
+// cells calls fn for every cell of the cube's inclusive rectangle,
+// exactly per the engine rasterizer fcn.0056d720:
+//
+//	u ∈ [(x+y)>>5, (x+y+x_extent)>>5],  v ∈ [(y−width/2)>>5, y>>5]
+func (c *Cube) cells(fn func(idx int)) {
+	u1 := (c.X + c.Y) >> 5
+	u2 := (c.X + c.Y + c.XExtent) >> 5
+	v1 := (c.Y - c.Width/2) >> 5
+	v2 := c.Y >> 5
+	for v := v1; v <= v2; v++ {
+		for u := u1; u <= u2; u++ {
+			idx := v<<10 + u
+			if idx >= 0 && idx <= gridMax {
+				fn(idx)
+			}
+		}
+	}
+}
+
+// ContainsCell reports whether world (x, y) falls in one of the cells
+// of the cube's stamp rectangle.
+func (c *Cube) ContainsCell(x, y int) bool {
+	pu := (x + y) >> 5
+	pv := y >> 5
+	u1 := (c.X + c.Y) >> 5
+	u2 := (c.X + c.Y + c.XExtent) >> 5
+	v1 := (c.Y - c.Width/2) >> 5
+	v2 := c.Y >> 5
+	return pu >= u1 && pu <= u2 && pv >= v1 && pv <= v2
+}
+
+// Stamp rasterizes the cube into the grid (fcn.0056d720): OR the mask
+// into each cell, counting hard blockers. A zero mask stamps nothing.
+func (g *Grid) Stamp(c Cube) {
+	if c.Mask == 0 {
+		return
+	}
+	c.cells(func(idx int) {
+		g.flags[idx] |= c.Mask
+		if c.Mask&(MaskStatic|MaskPlayerBlock) != 0 && g.blockRef[idx] < 255 {
+			g.blockRef[idx]++
+		}
+	})
+}
+
+// Unstamp is the inverse (fcn.0056d890): decrement the blocker
+// refcount and clear the cube's bits only when no other blocker still
+// owns the cell.
+func (g *Grid) Unstamp(c Cube) {
+	if c.Mask == 0 {
+		return
+	}
+	c.cells(func(idx int) {
+		if c.Mask&(MaskStatic|MaskPlayerBlock) != 0 && g.blockRef[idx] > 0 {
+			g.blockRef[idx]--
+		}
+		if g.blockRef[idx] == 0 {
+			g.flags[idx] &^= c.Mask
+		}
+	})
+}
+
+// ObjectState is the flags-word state the mask derivation reads
+// (instance s_* bits + two catalogue sb_* behaviour bits).
+type ObjectState struct {
+	PlayerBlock   bool // s_player_block
+	WalkThrough   bool // s_walk_through
+	Door          bool // s_door
+	Closed        bool // s_closed (runtime state)
+	Locked        bool // s_locked (runtime state)
+	Light         bool // s_light
+	Lever         bool // s_lever
+	WalkOn        bool // catalogue sb_walk_on
+	NoLookThrough bool // catalogue sb_no_look_through
+}
+
+// ObjectMask derives the cell mask from the object flags word, in the
+// engine's exact order (fcn.00572100 / fcn.0056e2c0; note the cube
+// `type` field plays no part):
+//
+//	if sb_player_block: mask = walk_through ? 0 : 0x2
+//	elif sb_door:       mask = (closed ? 0x4 : 0) | (locked ? 0x1 : 0)
+//	else:               mask = walk_through ? 0 : 0x1
+//	plus light|lever|walk_on|no_look_through extras;
+//	hard blockers strip the climb bit.
+func ObjectMask(o ObjectState) uint16 {
+	var mask uint16
+	switch {
+	case o.PlayerBlock:
+		if !o.WalkThrough {
+			mask = MaskPlayerBlock
+		}
+	case o.Door:
+		if o.Closed {
+			mask |= MaskDoorClosed
+		}
+		if o.Locked {
+			mask |= MaskStatic
+		}
+	default:
+		if !o.WalkThrough {
+			mask = MaskStatic
+		}
+	}
+	if o.Light {
+		mask |= MaskLight
+	}
+	if o.Lever {
+		mask |= MaskLever
+	}
+	if o.WalkOn {
+		mask |= MaskWalkOn
+	}
+	if o.NoLookThrough {
+		mask |= MaskSight
+	}
+	if mask&MaskStatic != 0 {
+		mask &^= MaskWalkOn
+	}
+	return mask
 }
