@@ -1,81 +1,69 @@
-# Status
+# Status — how playable is OpenDivine?
 
-Snapshot of what runs in OpenDivine today vs. what's still ahead.
+**Short answer: not yet playable as a game.** You can walk a fully
+rendered world with an animated hero, open doors and chests, and listen
+to the menu music — but there are no monsters, no items you can pick
+up, no stats, no story, and no saving.
 
-It will definitely shift as work progresses: items appear, get split, get deleted, and trade places.
+This page tracks the *player experience*. The full engineering plan
+with every implementation step is in [ROADMAP.md](ROADMAP.md); the
+reverse-engineering knowledge base behind it is complete
+([RE_STATUS.md](RE_STATUS.md)).
 
-## World rendering
+## Exploring the world
 
-- [x] Terrain map
-- [x] Tiles 
-- [x] Objects
-- [x] Engine-faithful depth sort
-- [ ] Roof rendering and fade-on-enter
-- [ ] Day/night cycle
-- [ ] ???
+- [x] The whole world renders — terrain, decals, objects, with the
+  original engine's depth sorting
+- [x] Walk around: click-to-walk and WASD, camera follow, zoom
+- [x] Walls and furniture block you (approximate; not engine-exact yet)
+- [ ] Walking around obstacles automatically (pathfinding)
+- [ ] Roofs hide when you step inside a building
+- [ ] Day/night cycle (light tint, clock)
+- [ ] Weather
+- [ ] Map / minimap
 
-## Character rendering
+## Your character
 
-- [x] Main character
-- [x] Walk animations
-- [x] Idle animations
-- [ ] Other animations
-- [ ] NPCs
-- [ ] Equipment influence
-- [ ] ???
-
-## Movement
-
-- [x] Click-to-walk with straight-line motion
-- [x] WASD pan
-- [ ] Engine-faithful collision
-- [ ] A* path planning around obstacles
-
-## Combat
-
-- [ ] ???
+- [x] The hero renders and animates (walk + idle, all six class/sex
+  combinations)
+- [ ] Equipment visible on the character
+- [ ] Attributes, health/mana, level-ups, skills
+- [ ] Character/status screens
 
 ## Items
 
+- [ ] Items exist in the world and can be picked up
 - [ ] Inventory
-- [ ] Picking up items
-- [ ] Equip / unequip + sprite recompose
-- [ ] Use-item (potions, scrolls, books)
-- [ ] Drop / drag
-- [ ] Identify (spell + NPC paths)
-- [ ] Trade / shop UI
-- [ ] ???
+- [ ] Equipping weapons and armour
+- [ ] Potions, scrolls, books
+- [ ] Shops and trading
 
-## Spells
+## Combat & monsters
 
-- [ ] ???
+- [ ] Monsters spawn
+- [ ] Fighting (melee, ranged, damage, death)
+- [ ] Magic and skills
 
-## Skills & progression
+## Story & people
 
-- [ ] Skills menu
-- [ ] Skill bar and armed-skill slot
-- [ ] Stats
-- [ ] XP & Leveling
+- [ ] NPCs walk around and react
+- [ ] Conversations
+- [ ] Quests and the journal
+- [ ] The main story progresses (Osiris script engine)
 
-## World & story
+## Doors, chests & the interactive world
 
-- [ ] Save / load
-- [ ] Quest log
-- [ ] Osiris script VM
-- [ ] Dialog system
-- [ ] Automap + minimap rendering
-- [ ] ???
+- [x] Doors and chests open and close (basic: no keys, sounds, or
+  chest contents yet)
+- [ ] Locks and keys, levers, teleporters, traps
 
-## Interactables
+## Sound & video
 
-- [ ] Doors
-- [ ] Containers
-- [ ] ???
+- [x] Main-menu music
+- [ ] In-world music and ambient sound (zone/day/night)
+- [ ] Sound effects
+- [ ] Intro/outro movies
 
-## Audio
+## Saving
 
-- [ ] ???
-
-## Other
-
-- [ ] ???
+- [ ] Save and load
