@@ -12,7 +12,7 @@ static/imagelists/
     APackedb.<n>    APackedi.<n>      6 files (n=1..6)    animation metadata
     Collide.<n>     (no index?)       3 files (n=2,3,5)   collision masks
     cubelist.<n>                                          per-region cube lookups (referenced)
-    roofs.000       roofs.dat                             roof overlays — see formats/roofs.md (TODO)
+    roofs.000       roofs.dat                             roof overlays — see formats/roofs.md
 ```
 
 ## CPacked family — 13 sprite/tile imagelists
@@ -102,8 +102,8 @@ struct IndexEntry {            // 56 bytes
     u32 width;                  // CPacked: pixels.    APacked: 0 or repurposed.
     u32 height;
     u32 flags;                  // family-specific bit field
-    u32 anchor_x;               // CPacked: anchor.    APacked: probably first_frame_id.
-    u32 anchor_y;               //                     APacked: probably frame_count.
+    u32 anchor_x;               // CPacked: anchor.    APacked: see note (on-disk = frame_offset).
+    u32 anchor_y;               //                     APacked: see note (on-disk = frame_count).
     u32 width_inner;            // CPacked: tight bbox extent
     u32 height_inner;
     u32 packed_dims;
@@ -115,6 +115,17 @@ Blob entries always start with a u32 uncompressed-size header
 followed by an LZO1X-1 stream — see [`cpacked.md`](cpacked.md). For
 APacked the post-LZO payload is animation script data, not a sprite
 raster.
+
+> **`IndexEntry` above is the 56-byte *runtime* (in-memory) entry — not the
+> on-disk APacked index.** The on-disk `APackedi.<n>` record is **16 bytes**
+> (verified: every shipped `APackedi.*` size is a multiple of 16, most are
+> *not* multiples of 56) and is decoded byte-exact in
+> [`apacked.md`](apacked.md) as `{reserved0, frame_count, frame_offset,
+> reserved3}`. So for APacked the earlier "`anchor_x` probably
+> first_frame_id / `anchor_y` probably frame_count" guesses defer to that:
+> the on-disk values are **`frame_offset`** and **`frame_count`** (there is
+> no "first_frame_id"; the offset is `frame_offset`). The 56-byte runtime
+> `IndexEntry` is the loader's expanded form of that 16-byte on-disk record.
 
 ## Loader citations
 

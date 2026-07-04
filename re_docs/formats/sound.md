@@ -77,12 +77,29 @@ Empirically:
 - **L3** holds *day* ambient bindings (`GenDay01`, `Cellar`, `Cellar02`, ...).
 - **L4** holds *night* ambient bindings (`GenNight`, `ForestNight`, ...).
 - **L0** holds the primary music track (e.g. `4`, `forest`, `Hookers3`).
-- **L1**, **L2** roles still inferential.
+- **L1** = a reserved second music list — **proven unused**: zero
+  shipped regions populate it, and the list picker `FUN_00553a30`
+  is never called with index 1.
+- **L2** = a **timed alternate/override music** list — the consumer is
+  proven (index 2 passed at `0x55370b` on state-event bit `0x02`,
+  switching to a timed override with restore-to-L0 via bit `0x04` at
+  `0x5513c0`→`0x5536cc`), but **no instruction in div.exe ever sets
+  bit `0x02`** and all shipped regions leave L2 empty — a complete
+  but untriggered mechanism (intended stinger/combat use, not
+  statically recoverable).
+- Structurally L0/L1/L2 resolve against the section-1 *music* map
+  (`FUN_00552d80`) and L3/L4 against the section-2 *ambient* map
+  (`FUN_00552da0`). Day/night pick: night = hour < 5 or ≥ 23
+  (`0x553791/0x5537a1`); an empty night list falls back to day.
 
-Validated by [`pkg/assets/musicdat`](../../pkg/assets/musicdat) —
-all 153 regions parse byte-exact through to EOF (14133 bytes), with
-`Aleroth`'s `L0 = [(4, 0.2), (forest, 0.2)]`, `L3 = [(GenDay01, 1.0)]`,
-`L4 = [(GenNight, 1.0)]` matching the documented values.
+Validated by an ad-hoc parse of the shipped file — all 153 regions
+parse byte-exact through to EOF (14133 bytes), with `Aleroth`'s
+`L0 = [(4, 0.2), (forest, 0.2)]`, `L3 = [(GenDay01, 1.0)]`,
+`L4 = [(GenNight, 1.0)]` matching the documented values. *(Note: the
+Go decoder [`pkg/assets/musicdat`](../../pkg/assets/musicdat)
+currently stops after section 2 and does **not** yet implement this
+section — an earlier revision of this paragraph wrongly credited it
+with the validation.)*
 
 ## `sound\nsound.dat` — sound effect bank
 
@@ -120,12 +137,20 @@ struct SfxClass {
 };
 
 struct Variant {
-    char  path[];              // NUL-terminated path string (XOR-obfuscated)
-                               //   e.g. "\\WAV\\Impact & Swoosh\\Bodyfall01Slide.wav"
+    u32   path_len;            // length of the path string (NOT NUL-terminated)
+    char  path[path_len];      // **length-prefixed PLAINTEXT** path (verified vs the
+                               //   shipped file: len@+0 then exactly path_len bytes,
+                               //   immediately followed by the floats below — no NUL,
+                               //   no XOR). e.g. len=40, "\\WAV\\Impact & Swoosh\\Bodyfall01Slide.wav"
                                //   resolved to a u32 file handle by FUN_0054eaa0
-    f32   param_a;             // observed: per-variant pitch / random-pitch range
-    f32   param_b;             // f3 — secondary param
-    f32   param_c;             // f4 — likely an angle (passed through sin/cos)
+    f32   max_dist;            // FMOD 3D **max distance** — constant 15.0 across all
+                               //   sampled entries (was mislabelled "pitch")
+    f32   min_dist;            // FMOD 3D **min distance** — constant 0.5 across all entries
+    f32   volume;              // per-sound **volume/gain** — varies (observed 0.8 / 1.0)
+                               //   [verified vs the shipped file: max_dist≡15.0,
+                               //    min_dist≡0.5 over 60 entries, volume the only varying
+                               //    field — i.e. FMOD Set3DMinMaxDistance + SetVolume,
+                               //    NOT pitch/angle]
     f32   weight;              // ONLY present if type_tag == 2 — relative pick weight;
                                //   the engine builds a cumulative array and picks via
                                //   uniform-random-into-CDF.
@@ -193,7 +218,8 @@ struct Region {
 };
 ```
 
-Validated by [`pkg/assets/reverbs`](../pkg/assets/reverbs): 8 presets,
+Validated by an ad-hoc parse (no Go decoder exists yet — an earlier
+revision credited a nonexistent `pkg/assets/reverbs`): 8 presets,
 first is "Cave" with 19 regions, second is "CellarCave".
 
 The 8-float reverb-parameter block matches FMOD's `FSOUND_REVERB_*`

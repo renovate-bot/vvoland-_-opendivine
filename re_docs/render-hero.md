@@ -18,11 +18,17 @@ single sprite — `surmA.bic` alone is just the legs+cloak piece.
 
 | Variant | Role             | 4th-char (equipment slot)                  |
 |---------|------------------|--------------------------------------------|
-| A       | legs + cloak     | `local_1c[0]` — legs equipment letter or `0` |
-| B       | torso + arms     | `local_14[0]` — torso equipment letter or `0` |
-| C       | helmet           | `local_2c[2]` — only added if helmet equipped |
-| D       | head / face / hair | `local_c[0]` — face letter or `0`        |
-| E       | weapon           | `local_24[0]` — only added if weapon equipped |
+| A       | legs + cloak     | `local_1c[0]` — leggings letter (tag 7) or `0` |
+| B       | torso + arms     | `local_14[0]` — torso letter (tag 2) or `0` |
+| C       | **weapon**       | `local_2c[2]` — only if a weapon is held (tag 3; classes A–O) |
+| D       | **helmet / head** | `local_c[0]` — helmet letter (tag 0) or `0` |
+| E       | **shield**       | `local_24[0]` — only if a shield is equipped (tag 4; tiers 1–5) |
+
+*(Roles C/D/E corrected via the slot-map proof in
+[clothing.md](clothing.md) — earlier revisions had
+C = helmet / D = face / E = weapon. The idle-stance and attack-letter
+switches key on the* weapon *(local_2c), which is why they looked
+"helmet-driven" under the old labels.)*
 
 The `.idc` hotspot of each variant lands on the character's world
 position; the engine's combiner re-anchors them so the layers stack
@@ -49,7 +55,7 @@ mapping and substitutes the right letter per variant per action.
 Each group contains all engine directions concatenated.  The
 direction count is **per anim slot**, set per character class
 (see "Direction count source" below).  For the player class
-("Hero") it is 20 for most slots, 5 for slot 4 (E weapon-only),
+("Hero") it is 20 for most slots, 5 for slot 4 (E, the shield layer),
 0 for disabled slots (7/10/14/15).
 
 ```text
@@ -124,13 +130,16 @@ See the switch ladder around `LAB_0043a31b`.
 
 All five-layer composition is **working** for unequipped warrior /
 survivor / wizard (m and f).  The composer (FUN_00439b70 port) is
-in `cmd/divine/character_compose.go`; it produces .key group names
+in `internal/game/character/character_compose.go`; it produces .key group names
 per anim slot + equipment.  Layer placement uses the corrected IDC
 field layout (see below).  Walk animation cycles through engine
-direction blocks correctly (engine_dir = (our_Dir + 2) % 8).
+direction blocks correctly via the N-direction formula
+`engineDir = (3·N/4 − d·N/8 + N) mod N` (see the direction-mapping
+section; the old 8-dir-only `(our_Dir + 2) % 8` note was its N=8
+special case and is superseded).
 
 Open items:
-- Equipped paths (layer C helmet, layer E weapon) — `AttachPairs`
+- Equipped paths (layer C = weapon, layer D = helmet, layer E = shield — corrected from "C helmet / E weapon" via the slot-map proof in [clothing.md](clothing.md)) — `AttachPairs`
   semantics still TBD; need to confirm which slot anchors what.
 - NPC spawning — the pipeline is the same, the placeholder
   `g.npcs` slice in main.go just isn't filled yet.
@@ -257,7 +266,7 @@ Empirically the per-direction frame block of an idle slot reads
 as "cut off" if hard-reset to frame 0 at the loop boundary; it
 ping-pongs (`0..N-1`, then `N-2..1`, then `0..`) for a smooth
 breath cycle.  Walk and other continuous slots loop normally.
-`pingPongOrLoop()` in `cmd/divine/character.go` selects per
+`pingPongOrLoop()` in `internal/game/character/character.go` selects per
 `AnimSlot`.
 
 ### Slot 0 = unarmed idle, slot 6 = armed idle

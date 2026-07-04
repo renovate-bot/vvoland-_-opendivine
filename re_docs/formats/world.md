@@ -1,10 +1,11 @@
 # `world.x<n>` — paged world cell-grid
 
 The world map is split into **5 partitions** (`world.x0`..`world.x4`)
-and within each partition into a **32 × 32 grid of fixed-size sectors**.
-A sector covers `96 × 96` map cells; each cell is one byte (tile id).
-Sectors may carry trailing per-sector metadata, so chunk size on disk
-is variable.
+and within each partition into **1024 sectors** of 512 cells each —
+one sector per Y-row of a 512×1024-cell partition (the working model
+validated by the OpenDivine port; the earlier "32 × 32 grid of 96 × 96
+fixed-size sectors" intro was a geometric guess, retracted below).
+Chunk size on disk is variable.
 
 All integers little-endian.
 
@@ -12,7 +13,7 @@ All integers little-endian.
 
 ```text
 struct WorldFile {
-    u32 chunk_offsets[1024];   // 32×32 sector grid; offsets are absolute byte offsets in this file
+    u32 chunk_offsets[1024];   // one per sector (Y-row); offsets are absolute byte offsets in this file
     u8  data[];                // sector chunks concatenated, addressed by chunk_offsets[i]
 };
 ```
@@ -62,8 +63,8 @@ struct Object {                // 8 bytes per object instance
                                // bits 12..15: per-object flags index — passed through
                                //              FUN_00581fa0 to derive runtime flags
                                // bits 16..31: unused / reserved
-    u32   ord_kind;            // bits  0..9 : `param_4` arg to placer (probably stack height)
-                               // bits 10..23: object catalogue id (param_5 to FUN_00572100)
+    u32   ord_kind;            // bits  0..9 : a 0..1023 value passed to the placer (role 🟡 — see note)
+                               // bits 10..23: object catalogue id (→ FUN_00572100)
 };
 ```
 
@@ -78,12 +79,36 @@ sector into a buffer, then iterates 512 cells per sector consuming
 2 bytes of pointer-table per step and dispatching object placements
 via `FUN_00572100`.
 
+**Bit-field extraction confirmed** (parser at `0x0059d0c0`): `ord_kind &
+0x3ff` → bits 0..9 (the `0..1023` value), `(ord_kind >> 0xa) & 0x3fff` →
+bits 10..23 catalogue id; `xy_kind & 0x3f` sub_x, the sub_y shift, and
+`xy_kind >> 0xc` → the flags index fed to `FUN_00581fa0` (derived runtime
+flags). So the *layout* is verified against the binary. The **bits-0..9
+role** stays 🟡: the value is pushed as `param_3` of the placer
+`FUN_00572100` (a multi-caller function — also used by `CObject::Use`), and
+its use is not traceable to a Z/elevation add without deep dataflow, so the
+earlier "probably stack height" guess is left as an *unconfirmed inference*,
+not asserted.
+
+**Dynamic-state refinement** ([osi-static](osi-static.md)): once a map
+is live, the cell object entry's first u32 repurposes the high bits —
+bits 0..5 `sub_x`, 6..11 `sub_y`, and **bits 12..31 = the
+`objects.x<n>` instance handle** (`shr 0xc` at `0x585e2d`/`0x580600`,
+handle = record index into the 28-byte instance heap), not the static
+4-bit flags index. The static-file reading above applies to the shipped
+`world.x<n>` as such.
+
 ### Floor / overlay tile rendering
 
-Each non-zero `floor_tile_id` indexes directly into **CPacked
-imagelist 2** (`static\imagelists\CPackedb.2c` + `CPackedi.2c`,
-3363 entries — all 64×64 RGB565 raw tiles, `flags=0`). Tile id
-`0` and `274` are sentinels for "no floor" / "void" cells.
+Each `floor_tile_id` indexes directly into **CPacked imagelist 2**
+(`static\imagelists\CPackedb.2c` + `CPackedi.2c`, 3363 entries —
+mostly 64×64 RGB565 raw tiles with `flags=0`, but **202 of the 3363
+carry `flags=1`** and are span-table sprites with transparent edges,
+handled like any standard CPacked cell). Tile id `274` is the single
+"void" sentinel (pure black, not drawn); **tile `0` is a real floor
+texture (dirt) and is drawn** — an earlier note calling both `0` and
+`274` sentinels was wrong (both corrections validated by the
+OpenDivine port against the shipped imagelist and map).
 
 `overlay_tile_id`, when not `-1`, is a second tile drawn on top of
 the floor (decals, road segments, stains). In shipped `world.x0`
@@ -92,9 +117,31 @@ the 1978..1996 range — a small set of overlay-tile ids).
 
 Together with the per-cell objects, these three layers
 (floor → overlay → objects sorted by Layer/Y) give a complete
-native-resolution render. There is **no** dependency on the
-unshipped `dat\tiles.dat`; that file feeds a different code path
-(the tile *manager* used by the editor / debug builds).
+native-resolution render. The **render** path has no dependency on
+`dat\tiles.dat`.
+
+`dat\tiles.dat` itself is **not** unshipped or editor-only (correcting an
+earlier note): it ships as plaintext in [`global.cmp`](cmp.md) and drives
+the **footstep-sound** path — it maps each **tile-index range** to a
+terrain **material** whose walk/run sounds correlate with `sound.dat`:
+
+```text
+{ 14 material → sound-handle ids }
+var "grass","1000"  var "dirt","1001"  var "stone","1002"  var "wood","1003"
+var "water","1004"  var "sand","1005"  var "grittystone","1006"
+… + run variants  grassrun/dirtrun/…  "1007".."1013"
+
+{ 645 tile-range assignments }
+set range 0,11    set sound dirt   set runsound dirtrun
+set range 12,27   set sound grass  set runsound grassrun
+set range 48,49   set sound stone  set runsound stonerun
+…
+```
+
+So a cell's `floor_tile_id` selects the material via its containing
+`set range A,B`, and walking vs running picks `sound` vs `runsound` — the
+terrain-footstep audio table ([`../sound-runtime.md`](../sound-runtime.md)),
+distinct from the render layers above.
 
 ## Hex dump — `main/startup/world.x0` first offsets
 
@@ -121,9 +168,16 @@ div.exe:0x005a0300   FUN_005a0300   ctor: open file, read 0x400 u32 offset table
 div.exe:0x0059ce90   FUN_0059ce90   per-sector parser: walks 1024 sectors × 512 cells; pulls (sub_x, sub_y, obj_id, flags) from each record's object array and dispatches via FUN_00572100
 div.exe:0x00572100   FUN_00572100   per-object placement: looks up sprite catalogue entry, applies adjustments, calls draw helpers
 div.exe:0x0056d260   FUN_0056d260   per-cell height/flags stream loader (DAT_00750d64 path; usually `<save>\height.x<n>`)
+div.exe:0x0057ca10   fcn.0057ca10   .\WORLD\mapman.cpp:191 — cwd-guarded blob loader (231 B): ftell/fseek to size the file remainder, fread it, parse as a count-prefixed array of 264-byte records (fcn.004fa920, .\MISC\Misc.cpp:63), optional _chdir around the load.
+div.exe:0x00592950   fcn.00592950   .\WORLD\tileman.cpp:52 — tile name→id registry insert (89 B): lookup via fcn.005928b0 (atoi fast-path, else linear scan of the {char* name, int id} array at +0x10/+0x14), on miss grow the array and _strdup the name.
 ```
 
-Source path leak: `.\WORLD\World.cpp:0xce`.
+Source path leak: `.\WORLD\World.cpp:0xce`. (`mapman.cpp` and `tileman.cpp`
+are small helper units within this same WORLD map system — the map
+loading/orchestration itself is the boot step 17 `fcn.005a0300` above and
+[architecture](../architecture.md), not a separate manager. Their unit
+attribution comes from the debug-allocator `file,line` tags pushed inside
+each function, and neither unit has an RTTI manager class.)
 
 Object layout used by the in-memory class (selected fields):
 

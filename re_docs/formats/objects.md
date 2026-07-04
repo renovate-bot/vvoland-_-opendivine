@@ -10,6 +10,10 @@ than `objects.000` at load time.
 
 All integers little-endian.
 
+For how these flags drive runtime behaviour when an object is used
+(doors, chests, levers, locks), see
+[`../object-interaction.md`](../object-interaction.md).
+
 ## Record layout (148 bytes)
 
 Field offsets confirmed by reading the engine's CSV exporter at
@@ -48,7 +52,20 @@ struct Object {                       // 0x94 = 148 bytes
     u32   floating_highlight_index;   // +0x54
     u32   floating_pressed_index;     // +0x58
     u32   floating_disabled_index;    // +0x5c
-    u8    pad_60[8];                  // +0x60 — 8 bytes runtime-only state
+    i16   legacy_60;                  // +0x60 — dead pad: -1 (or 0 in appended
+    i16   legacy_62;                  // +0x62    records); no catalogue readers
+    i16   anchor_x;                   // +0x64 — sprite ground anchor. File bytes are a
+    i16   anchor_y;                   // +0x66   generation-time cache: the loader
+                                      //   FUN_00586550 unconditionally recomputes both
+                                      //   from the current imagelist sprite header
+                                      //   (midpoint math, stores at 0x5867f9/0x5867fd)
+                                      //   before anything reads them — so they are
+                                      //   file-borne but authoritative only in RAM.
+                                      //   Heavily read at runtime (~16 confirmed
+                                      //   0x94-stride readers incl. FUN_00582890's
+                                      //   grid-cell key: (pos+anchor)>>5 → 1024-wide
+                                      //   cell id; agentparty.cpp reach checks; the
+                                      //   objects.cpp placement cluster).
     u32   weapon_animation;           // +0x68
     u32   trade_priority;             // +0x6c
     u32   floating_group;             // +0x70

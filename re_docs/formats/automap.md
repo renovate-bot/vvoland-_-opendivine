@@ -93,3 +93,34 @@ div.exe:0x0044f730   FUN_0044f730   load .lzi (size-mod-4 check, slurp into +0x4
 div.exe:0x0044ede0   FUN_0044ede0   per-tile: seek+read compressed bytes, call decompressor, OR fixup
 div.exe:0x005a4ce0   FUN_005a4ce0   LZO1X-1 decompressor
 ```
+
+## User notes (`dat\usernotes.bin`, `.\automap\usernote.cpp`)
+
+The player's hand-placed automap annotations — the `UserNotePlate`
+([`../gui.md`](../gui.md)) — persist to **`dat\usernotes.bin`** via
+`CUserNotes` (`.\automap\usernote.cpp`). The manager keeps notes
+**per region** (a 2-D structure: `mgr[region][note]`, region array at
+`mgr+0x18`), and the serializer **`FUN_00450d60`** writes each note as a
+**length-prefixed text record**:
+
+```text
+per note:
+    u32   key       // position / note key (packed cell or id)
+    u32   textLen   // byte length of the note text
+    char  text[textLen]
+```
+
+(Three `fwrite`s per note: `(key,1,4)`, `(textLen,1,4)`, `(text,1,textLen)`.)
+Load/save is driven from `FUN_0044b510` / `FUN_0044cbc0`; the note text is
+also held as a packfile block (`CUserNotes::AddBlock : packfile`). The
+exact split of the first `u32` (cell position vs. a note id) is the only
+detail left 🟡. Loaded/saved with the rest of the player's map state, not a
+shipped asset.
+
+## Loader citations (user notes)
+
+```text
+div.exe:0x00450d60   FUN_00450d60   CUserNotes serialize — per-note {u32 key, u32 len, text[len]}.
+div.exe:0x0044b510   FUN_0044b510   usernotes.bin save path (fopen "wb" → FUN_00450d60).
+div.exe:0x0044cbc0   FUN_0044cbc0   usernotes.bin load path.
+```

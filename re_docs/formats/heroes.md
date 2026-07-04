@@ -65,34 +65,57 @@ downstream sprite math but not in any file):
 
 ## `.idc` — fixed 40-byte sprite directory
 
+*(This section was corrected after the first pass; the superseded
+readings are called out inline. The corrected layout matches
+[render-hero](../render-hero.md) and is what
+`pkg/assets/heroes` implements — re-verified against the shipped
+`surfA.idc`/`surfA.bic`.)*
+
 ```text
 struct IDCRecord {              // 40 bytes
-    u32  offset;                 // decompressed byte offset within the animation group's decompressed buffer
+    u32  offset;                 // see below — global decompressed offset / block file-offset
     u32  size;                   // decompressed frame byte size
-    u16  width;                  // sprite bounding-box width in pixels
-    u16  height;                 // sprite bounding-box height in pixels (NOT the stored scanline count)
-    u16  hotspot_x;              // (field_8) sprite horizontal anchor / center
-    u16  hotspot_y;              // (field_a) sprite vertical anchor AND number of stored scanlines
-    u8   reserved[24];           // 0xFF-filled in shipped data (= 6 placeholder u32s)
+    u16  x_min;                  // sprite bbox left within the composite frame
+    u16  y_min;                  // sprite bbox top within the composite frame
+    u16  width;                  // tight sprite width
+    u16  height;                 // tight sprite height — ALSO the stored scanline count
+    struct { i16 x, y; } attach[6]; // attach pairs; 0xFFFF-filled when unused
 };
 ```
 
-`surfA.idc` (657,600 bytes = 16,440 records) is fully validated:
+`surfA.idc` (657,600 bytes = 16,440 records) validation:
 
-- All `reserved[24]` bytes are 0xFF in every record.
-- Every `width`/`height` is a plausible sprite dimension (1..1024).
-- `offset[0] == 0`.
-- `offset` is a decompressed byte offset **within the animation group's decompressed buffer**,
-  NOT an absolute offset into the `.bic` file. Offsets reset to 0 at each group boundary
-  (defined by the `.key` file). The ~50 apparent back-steps in `surfA.idc` are exactly the
-  group boundaries.
-- `hotspot_y` doubles as the scanline count: for 479/479 MAA0 frames verified, the decompressed
-  frame contains exactly `hotspot_y` scanlines in its span table (not `height` lines).
+- `x_min ∈ [74,122]`, `y_min ∈ [64,147]`, and `x_min+width ≤ 232`,
+  `y_min+height ≤ 253` (the `.key` `Max size`) for **100 % of records** —
+  consistent only with this layout, not with the earlier
+  "width/height at +8, hotspot at +12" guess (retracted).
+- The trailing 24 bytes are the 6 **attach pairs** (see
+  [render-hero](../render-hero.md) for which variant owns which pair);
+  unused pairs are 0xFFFF-filled, which the first pass misread as
+  "reserved, 0xFF-filled".
+- `offset` semantics (corrects the earlier "resets to 0 at each group
+  boundary" model): for **mid-group records** it is a **global
+  cumulative decompressed offset** — the byte position within the
+  concatenation of *every* block's decompressed buffer, never reset
+  (e.g. `MAA1` record 481 holds 1,181,436 = 1,178,896 (group 0's
+  decompressed size) + 2,540 (frame 480's size)). For the **first
+  record of each group** it instead holds the **`.bic` file offset of
+  that group's block** (pointing at the block's `compressed_size`
+  field; e.g. record 480 holds 637,203 = the `MAA1` block's absolute
+  file offset). Consumers should derive frame positions from the
+  cumulative `size` fields per group and use the group-start offset
+  only to locate the block.
+- `height` is the span-table line count: for 479/479 MAA0 frames the
+  decompressed frame contains exactly `height` scanlines.
 
 ## `.bic` — sprite payload
 
-The `.bic` file is a flat sequence of **per-animation-group compressed blocks**, one block per
-`.key` group in the order the groups are listed. Each block has:
+The `.bic` file is a flat sequence of **per-animation-group compressed
+blocks** — one block per group **of that file's variant only** (e.g.
+`surfA.bic` holds exactly the 51 variant-A groups of `surf.key`, in
+`.key` order, consuming the file byte-exactly; the earlier "one block
+per `.key` group" reading falls off the end of the file at group 51).
+Each block has:
 
 ```text
 struct AnimGroupBlock {
@@ -112,23 +135,27 @@ Example from `surfA.bic` (group 0 = MAA0, 480 frames):
 
 ### Decompressed frame format
 
-Within a group's decompressed buffer, each frame starts at `idc.offset` bytes from the
-buffer beginning. The frame uses the same span-table codec as CPacked / CPackedb:
+Within a group's decompressed buffer, frames are laid out back-to-back
+(frame start = cumulative sum of the group's preceding `idc.size`
+values). The frame uses the same span-table codec as CPacked /
+CPackedb:
 
 ```text
 struct HeroBicFrame {
     u32  total_size;               // = idc.size (redundant; decompressed frame byte count)
     u32  pixel_data_offset;        // byte offset from frame start to the pixel data block
-    u16  hotspot_x;                // = idc.hotspot_x; sprite horizontal anchor
-    u16  hotspot_y;                // = idc.hotspot_y; also = number of stored scanlines
-    Line lines[hotspot_y];         // span table; same encoding as CPacked
+    u16  width;                    // = idc.width
+    u16  num_lines;                // = idc.height (stored scanline count)
+    Line lines[num_lines];         // span table; same encoding as CPacked
     u8   pixel_data[];             // RGB565 pixel runs, 2 bytes per pixel
 };
 ```
 
-`idc.height` is the full **bounding-box height**; `idc.hotspot_y` is the number of
-scanlines actually stored. The two differ: a sprite can have blank rows at the top or
-bottom of its bounding box that are absent from the span table.
+*(The earlier "hotspot_x/hotspot_y" naming of the two u16s, and the
+narrative that `idc.height` is a bounding-box height distinct from the
+scanline count, are retracted with the layout correction above —
+`height`/`num_lines` are the same value, and placement comes from
+`x_min`/`y_min` plus the class anchor, not from a per-frame hotspot.)*
 
 ### Line and Span format (identical to CPacked)
 
@@ -190,7 +217,7 @@ record stride**:
 | `imagelists\APacked{i,b}.<n>`     |   16 B  |    283 (`APackedi.1`)       |
 | `inv.{b,i}<N>` (savegame)         |   28 B  |  5,043 (`inv.i1`)           |
 
-See [`apacked.md`](apacked.md) and [`inventory.md`](inventory.md).
+See [`apacked.md`](apacked.md) and [`inventory.md`](../inventory.md).
 The earlier claim that APacked uses the same 40-byte record as
 heroes was **wrong** — APacked's stride is 0x10, pinned by the
 `FUN_004e9fe0(.bpath, .ipath, 0x10, 8, 1)` call.

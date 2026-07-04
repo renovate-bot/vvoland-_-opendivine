@@ -304,13 +304,28 @@ handler (`FUN_0051d530` at `0x0051d530` and `FUN_0051d700` at
    haven't isolated; likely shares the same hooks as the music
    region change.
 
-4. **Music section-3 fields L1 / L2.** `formats/sound.md` lists
-   L0=music, L3=day-ambient, L4=night-ambient as observed; L1 and
-   L2 carry data in shipped files but their consumer in
-   `FUN_00553660` is not yet clear. Candidates: combat-stinger and
-   stinger-on-region-change.
+4. **Music section-3 fields L1 / L2** ✅ *(resolved — and the "carry
+   data in shipped files" claim here was wrong: zero shipped regions
+   populate either list)*. L1 is a reserved music list with **no
+   consumer** (picker `FUN_00553a30` never called with index 1); L2 is
+   a **timed override-music mechanism, complete but untriggered** —
+   selected on state-event bit `0x02` (`0x55370b`) with restore via
+   bit `0x04`, and nothing in div.exe sets bit `0x02`. See
+   [formats/sound.md](formats/sound.md).
 
-5. **The custom `FSOUND_File_SetCallbacks` callbacks.** FMOD I/O
-   is hooked so streams can be served from inside the `voice.cmp`
-   / `sound.cmp` archives; the four-callback table installed at
-   sound-init time (open/read/seek/close) hasn't been traced.
+5. **The custom `FSOUND_File_SetCallbacks` callbacks** ✅ (resolved).
+   The installer is **`fcn.0054a8d0`** (sound init): at `0x54a954` it
+   calls `FSOUND_File_SetCallbacks(open, close, read, seek, tell)` with
+   five engine thunks — **open `fcn.0054a830`, close `fcn.0054a850`,
+   read `fcn.0054a870`, seek `fcn.0054a890`, tell `fcn.0054a8b0`**. Each
+   is a thin shim that forwards to the engine's **own virtual file API**
+   rather than to CRT `stdio`: open → `fcn.004f5e30` (the generic
+   open-`"rb"` used by every other loader, e.g. camera/weather), read →
+   `fcn.004f64f0`, seek → `fcn.004f5ed0`. Since that VFS transparently
+   resolves a path to either a loose file or a member inside a `.cmp`
+   archive ([`formats/cpacked.md`](formats/cpacked.md)), FMOD streams its
+   audio (`voice.cmp` / `sound.cmp`) **directly out of the packed archives
+   with no extraction** — the engine hands FMOD a virtual handle and
+   services its reads from the archive. So FMOD never touches the real
+   filesystem for streamed audio; it goes through the same VFS as the rest
+   of the game's data files.

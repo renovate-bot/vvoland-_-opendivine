@@ -82,7 +82,7 @@ sort lives in `CSpriteSorter::Render` (next section).
     per-class AddToSortBox.  Static props go straight into the
     topological sort without ever touching the back-emit branch.
 
-    OpenDivine note: `cmd/divine/main.go` routes ALL visible
+    OpenDivine note: `internal/game/render.go` routes ALL visible
     objects through topo, which matches the engine: every static
     world prop participates in the pairwise depth-sort, just as
     the engine does.  Gore decals are not yet implemented.
@@ -132,7 +132,7 @@ sort lives in `CSpriteSorter::Render` (next section).
     `psVar10[5]` — the short at `collide+0x0a`, i.e. **Width**.
     The 2-byte field at `collide+0x04` is the runtime-only
     `RtTimer` slot (always 0 on disk; not used in the sort).
-    The current `sortRecord` builder in `cmd/divine/main.go`
+    The current `sortRecord` builder in `internal/game/render.go`
     uses `cubeW = collide.Width`, which matches the engine.
 
 3.  **Pairwise compare + topo recursion** (`0x00547180` onward).
@@ -152,8 +152,13 @@ sort lives in `CSpriteSorter::Render` (next section).
     }
     ```
 
-    The "loser" of the compare gets a dependency edge appended to
-    `sprite[+0x90/0x94]`.  The topo-emit pass `FUN_00546ec0`
+    The **in-front sprite** (the one `cmp` says draws later) gets a
+    dependency edge appended to `sprite[+0x90/0x94]`, pointing at the
+    behind sprite. (An earlier wording said "the loser gets the edge" —
+    ambiguous at best: since the topo emit DFS-walks a sprite's deps
+    *before* blitting it, the deps must be the sprites drawn behind, so
+    the edge hangs off the in-front sprite. The OpenDivine port's
+    direction is the correct reading.)  The topo-emit pass `FUN_00546ec0`
     (`0x00546ec0`) DFS-walks deps, then calls `vtbl[0]` to blit, with
     a `visited` flag (`sprite[+0xa4]`) preventing cycles and a
     safety abort at 3000 recursive calls.
@@ -188,7 +193,14 @@ Candidates investigated and ruled out:
 
 - `0x0041e4e0` — agent action dispatcher (`agentmagic.cpp`); no rendering.
 - `0x004329a0` — NPC script-bytecode interpreter; no rendering.
-- `0x00582890`, `0x00572270` — debug overlays / sort-key calc only.
+- `0x00572270` — debug overlays only. `0x00582890` is **not** debug
+  (correcting an earlier note): it is a live object-state pass — it
+  BFS-collects an animation-linked group of instances, then per member
+  computes the grid-cell key from `(pos + catalogue anchor_x/y) >> 5`
+  and stamps the instance `+0x5c` elevation/sort field from the
+  `[0x74eca0]` grid; callers are the MPLAYER message handlers
+  (`0x506e16`/`0x507376`/`0x507606`) and objects.cpp updaters
+  (`0x587360`/`0x587646`).
 
 Next places to look:
 
@@ -271,7 +283,10 @@ iVar12 = iVar12 - (uVar9 & 0xffff);    // worldY -= elevation
 the engine's in-memory cell records.  Per-cell layout in
 `height.x<n>` is 3 bytes: `{u8 height; u16 flags;}`.  The loader
 copies `height` into byte +7 of the corresponding spatial-hash
-bucket — see `re_docs/formats/height.md`.
+bucket — the height.x record layout is specced across this doc,
+[collide.md](formats/collide.md) (the grid + climb bytes) and
+[world.md](formats/world.md); a planned `formats/height.md` was never
+written.
 
 **Crucially**: `height` is the **terrain elevation** only — 0 for
 ~93% of cells, non-zero only on cliffs/terraces (16, 20, 32, 40, 48,
@@ -320,18 +335,26 @@ shifts indoor items off their tables in cellars where the
 basement floor itself carries a non-zero terrain byte (e.g.
 Joram's basement cells s=58–59, c=133–135 have b7 = 4–20).
 Until the actual draw-time application is traced, the cell's
-`HeaderByte7` is captured into `floorCell.TerrainElev` but not
-consumed.
+`HeaderByte7` is parsed (`pkg/assets/world`) but dropped by the port —
+not consumed. (Note the doc tension with world.md, which describes the
+same byte as `flag_off7` with bit `0x20` = "skip this object"; whether
+it is elevation, flags, or both per context is unresolved.)
 
 **Known gap:** multi-section castle walls that span a terrain
 transition (e.g. at world (16695, 7030)) still show a vertical
 gap where the wall sprites end and the next section begins
 ~200 px lower.  The level data has no LightBlocker objects in
 that Y range — the engine must extend wall coverage dynamically
-based on terrain, but the per-frame world-render call into
-FUN_00556a80 is still untraced (FUN_0041e4e0 builds a depth-sort
-queue via FUN_004f7b40, but the drainer that produces final
-screen X/Y is not yet located).
+based on terrain, and the specific unresolved piece is the
+per-frame world-render call into FUN_00556a80 (the terrain-driven
+wall-coverage extension), still untraced.
+(Note — the rest of this path *is* located, correcting an earlier
+"drainer not yet located" remark here: the per-object screen X/Y is
+`FUN_004f7b40`'s isometric projection `out_X = in_X+in_Y-65536`,
+`out_Y = in_Z` (formula above), and the world-object depth-sort
+drainer is **`CSpriteSorter::Render`** (`FUN_00547000`, the "World-
+object depth sort — FOUND" section above). So only the terrain-
+based wall extension in `FUN_00556a80` remains for this artifact.)
 
 Empirical verification:
 - Wooden table layer=0, z_height=41

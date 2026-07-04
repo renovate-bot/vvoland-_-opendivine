@@ -70,3 +70,29 @@ div.exe:0x0057bb80   FUN_0057bb80   writer: emits the magic, sub-tag, count, and
 The writer is the most direct format reference — the reader is split across the
 location-list class (loaded lazily in `FUN_0057bfe0` and friends), but produces the same
 on-disk layout by construction.
+
+## Runtime: name lookup & consumers
+
+Locations are resolved **by name at runtime**. The lookup
+**`FUN_0057bf90`** is a small `stricmp` linear scan over the loaded
+location list (comparing each record's `name` at `+0x08`), returning the
+matching record (its `v0`/`v1` = the coordinate). The miss path logs
+**`"Unknown location %s"`**.
+
+The primary consumer is **`agentscript`**: the script parser
+**`fcn.00430010`** ([`../npc-ai.md`](../npc-ai.md), the 125-keyword
+behaviour-script compiler) resolves a location name to a record through
+this lookup — it is the source of the four `"Unknown location %s"` sites —
+so NPC behaviour scripts name locations directly (e.g. *move to / wait at /
+is-near `stps_<name>`*). Locations also serve as **teleport targets**
+(the `stps_hero`/`stps_<npc>` story positions, [`../teleporters.md`](../teleporters.md))
+and as **named coordinates** the Osiris story addresses. So a location is a
+named point a script/story can reference, distinct from a `region`'s
+polygon **area** ([`region.md`](region.md)): point-name vs area-containment.
+(A trap can bind to either — a point `location` or an area `region` —
+[`../traps.md`](../traps.md).)
+
+```text
+div.exe:0x0057bf90   FUN_0057bf90   location-by-name lookup (stricmp scan; "Unknown location %s").
+div.exe:0x00430010   fcn.00430010   agentscript parser — resolves location names via the lookup.
+```
