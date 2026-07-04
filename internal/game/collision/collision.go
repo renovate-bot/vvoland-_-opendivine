@@ -62,6 +62,15 @@ func cellIndex(x, y int) (int, bool) {
 	return idx, idx >= 0 && idx <= gridMax
 }
 
+// CellIndex maps world (x, y) to the engine's cell index (v<<10 + u,
+// u = (x+y)>>5, v = y>>5); ok is false outside the engine's index gate.
+// Exposed so callers (e.g. a debug overlay) can tell which single cell
+// a mover occupies — the engine's movers carry no radius and own
+// exactly one cell.
+func CellIndex(x, y int) (idx int, ok bool) {
+	return cellIndex(x, y)
+}
+
 // Blocked reports whether the cell containing world (x, y) has any of
 // the mask bits set — the walkability core (destination-cell test of
 // fcn.0056f3c0; the per-direction corner chains and the climb gate

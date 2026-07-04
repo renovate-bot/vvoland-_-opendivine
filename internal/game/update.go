@@ -35,6 +35,9 @@ func (g *Game) Update() error {
 	if inpututil.IsKeyJustPressed(ebiten.KeyF8) {
 		g.showObjects = !g.showObjects
 	}
+	if inpututil.IsKeyJustPressed(ebiten.KeyF10) {
+		g.showColliders = !g.showColliders
+	}
 	if inpututil.IsKeyJustPressed(ebiten.KeyF12) {
 		g.wantShot = true
 	}

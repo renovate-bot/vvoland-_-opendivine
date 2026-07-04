@@ -40,10 +40,11 @@ type Game struct {
 	hasDest      bool
 	cameraFollow bool // true: camera locks to player; false: free pan
 
-	showFloors  bool   // F7 toggle
-	showObjects bool   // F8 toggle
-	wantShot    bool   // F12: capture next frame to screenshot
-	shotPath    string // -screenshot flag: write to this path then exit
+	showFloors    bool   // F7 toggle
+	showObjects   bool   // F8 toggle
+	showColliders bool   // F10 toggle: walkability-grid overlay
+	wantShot      bool   // F12: capture next frame to screenshot
+	shotPath      string // -screenshot flag: write to this path then exit
 }
 
 func (g *Game) Layout(outsideWidth, outsideHeight int) (int, int) {
