@@ -102,14 +102,18 @@ func (g *Game) loadRegion(n int) error {
 		}
 		return g.cells[i].CellX < g.cells[j].CellX
 	})
-	// Painter's-algorithm sort by Y (foot position) only.
-	// The engine's depth key is `out_Z = (65536 - in_Y) * 2` from
-	// `FUN_004f7b40`, i.e. depth = -Y.
+	// Baseline emission order for the topological sort: Y (foot position),
+	// then elevation. This fixes the draw order of NON-overlapping sprites
+	// only — overlapping ones get explicit dependency edges from the
+	// CSpriteSorter comparator port (render.go / sort.go,
+	// re_docs/render-trace.md). Note FUN_004f7b40's `(65536 - in_Y) * 2` is
+	// the FX-layer depth key, NOT the world-object sort (retracted in
+	// render-trace.md); the engine's own baseline is its visible-cell-list
+	// iteration order, which is undocumented — Y-then-elevation is our
+	// heuristic stand-in.
 	// Layer is a per-object ELEVATION (10-bit `& 0x3ff` in the world record),
 	// not a draw-order priority, sorting by Layer first puts walls over floor
 	// stains/decals incorrectly.
-	// For ties at the same Y, fall back to elevation so a flask-on-table draws
-	// after the table.
 	sort.SliceStable(g.insts, func(i, j int) bool {
 		if g.insts[i].Y != g.insts[j].Y {
 			return g.insts[i].Y < g.insts[j].Y

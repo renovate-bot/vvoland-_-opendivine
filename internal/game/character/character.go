@@ -24,7 +24,7 @@ type Character struct {
 	Moving   bool
 	AnimTick int
 	AnimIdx  int
-	AnimSlot int                // engine anim slot (default 11 = 'G' = stand idle)
+	AnimSlot int                // engine anim slot (0 = 'B' unarmed stand idle; slot 11 'G' is a move-style anim, NOT idle — re_docs/render-hero.md)
 	Equip    CharacterEquipment // currently-equipped items
 	Layers   []heroLayer
 
@@ -224,10 +224,9 @@ func (c *Character) Step(dx, dy float64) {
 		// The per-direction frame block (8 frames for B, varies per action) is
 		// a real breathing animation, let it cycle while standing still.
 		//
-		// Reset AnimIdx only on transition into idle from another slot.
-		// dirCount=40 keeps the cycle within one 9° direction band (wider
-		// dirCount would make AnimIdx cross direction boundaries and produce
-		// visible rotation).
+		// Reset AnimIdx only on transition into idle from another slot; the
+		// per-slot dirCount from data.000 (20 dirs / 18° bands for the hero
+		// classes) keeps the cycle within one direction band.
 		idleSlot := 0
 		if c.Equip.Weapon != 0 {
 			idleSlot = 6

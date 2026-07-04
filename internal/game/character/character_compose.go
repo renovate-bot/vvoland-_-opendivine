@@ -18,7 +18,8 @@ package character
 // objects.000 +0x3c field, a purpose-built positional visual code such
 // as "MGB0", NOT the human-readable catalogue Name), or 0 if the slot
 // is empty.  The engine reads these in FUN_0043a5b0 from the worn
-// items in equipment slots {1,2,3,4,7}; see re_docs/clothing.md.  The
+// items in the visible equipment slots {0,2,3,4,7} (slot 0 = helmet,
+// proven in re_docs/inventory.md); see re_docs/clothing.md.  The
 // letters key into the per-variant action mappings, a non-empty Helmet
 // flips variants B/D from "MGB0" / "MGD0" to a numbered variant like
 // "M1B3" depending on the helmet's class letter.

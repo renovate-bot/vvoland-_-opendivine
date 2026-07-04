@@ -73,7 +73,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		}
 	}
 
-	// Objects, already sorted by (Layer, Y).
+	// Objects, already sorted by (Y, Layer) in loadRegion.
 	//
 	// Engine-traced render formula (div.exe:0x004a3070 + FUN_005830c0):
 	//
