@@ -46,6 +46,14 @@ func TestShippedWorldWalkable(t *testing.T) {
 
 	grid := collision.NewGrid()
 	stamped := 0
+	// typeZeroWalls counts hard-blocker cubes whose collide record has
+	// type 0, and remembers one cube's anchor to assert it blocks. These
+	// walls (e.g. the tall stone walls in the region-0 start room, mask
+	// 0x009) were passable under the old `cr.Type != 0` placement gate;
+	// the engine ignores cube type and gates on the flags-word mask
+	// (fcn.00572100 @ 0x5721ec).
+	typeZeroWalls := 0
+	var wallX, wallY int
 	err = world.Walk(mustRead("main/startup/world.x0"), func(cx, cy int, c world.Cell) {
 		for _, o := range c.Objects {
 			id := int(o.CatalogueID)
@@ -53,27 +61,37 @@ func TestShippedWorldWalkable(t *testing.T) {
 				continue
 			}
 			cr := col.Records[id]
-			if cr.Type == 0 || cr.ZHeight <= 0 || cr.Width <= 0 {
-				continue
-			}
 			e := cat.Entries[id]
 			door := e.HasS(objects.SDoor)
+			// The engine gates the rasterize call on the flags-word mask,
+			// not the cube type (fcn.00572100 @ 0x5721ec); mask 0 stamps
+			// nothing.
+			mask := collision.ObjectMask(collision.ObjectState{
+				PlayerBlock:   e.HasS(objects.SPlayerBlock),
+				WalkThrough:   e.HasS(objects.SWalkThrough),
+				Door:          door,
+				Closed:        door && e.HasS(objects.SClosed),
+				Locked:        e.HasS(objects.SLocked),
+				Light:         e.HasS(objects.SLight),
+				Lever:         e.HasS(objects.SLever),
+				WalkOn:        e.HasSB(objects.SBWalkOn),
+				NoLookThrough: e.HasSB(objects.SBNoLookThrough),
+			})
+			if mask == 0 {
+				continue
+			}
+			x := cx + int(o.SubX) + int(cr.AnchorX)
+			y := cy + int(o.SubY) + int(cr.AnchorY)
+			if cr.Type == 0 && mask&collision.MaskStatic != 0 {
+				typeZeroWalls++
+				wallX, wallY = x, y
+			}
 			grid.Stamp(collision.Cube{
-				X:       cx + int(o.SubX) + int(cr.AnchorX),
-				Y:       cy + int(o.SubY) + int(cr.AnchorY),
+				X:       x,
+				Y:       y,
 				XExtent: int(cr.XExtent),
 				Width:   int(cr.Width),
-				Mask: collision.ObjectMask(collision.ObjectState{
-					PlayerBlock:   e.HasS(objects.SPlayerBlock),
-					WalkThrough:   e.HasS(objects.SWalkThrough),
-					Door:          door,
-					Closed:        door && e.HasS(objects.SClosed),
-					Locked:        e.HasS(objects.SLocked),
-					Light:         e.HasS(objects.SLight),
-					Lever:         e.HasS(objects.SLever),
-					WalkOn:        e.HasSB(objects.SBWalkOn),
-					NoLookThrough: e.HasSB(objects.SBNoLookThrough),
-				}),
+				Mask:    mask,
 			})
 			stamped++
 		}
@@ -81,7 +99,16 @@ func TestShippedWorldWalkable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Logf("stamped %d cubes", stamped)
+	t.Logf("stamped %d cubes (%d of them type-0 hard blockers)", stamped, typeZeroWalls)
+
+	// Regression: type-0 walls must block. The old gate skipped every
+	// cube with cr.Type == 0, so the player walked through these walls.
+	if typeZeroWalls == 0 {
+		t.Fatal("expected some type-0 hard-blocker walls in world.x0")
+	}
+	if !grid.Blocked(wallX, wallY, collision.MaskStatic) {
+		t.Errorf("type-0 wall anchor (%d,%d) is not blocked — the type gate regressed", wallX, wallY)
+	}
 
 	var sx, sy int
 	for _, r := range locs.Records {

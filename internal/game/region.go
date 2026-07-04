@@ -82,22 +82,29 @@ func (g *Game) loadRegion(n int) error {
 			// (re_docs/formats/collide.md, fcn.0056d720): rect origin
 			// = world position + the collide record's anchor, u span
 			// from x_extent, v span from width/2; the mask derives
-			// from the object flags word (cube `type` plays no part
-			// in the engine — we still require a non-degenerate cube
-			// as a conservative placement gate, since the engine's
-			// exact skip condition for cube-less sprites is not
-			// pinned).
-			if g.collide0 != nil && catID < len(g.collide0.Records) {
+			// from the object flags word. The cube `type` field plays
+			// NO part in the movement path — fcn.00572100 gates the
+			// rasterize call purely on the derived mask (0x5721ec:
+			// stamp iff mask != 0 || height != 0), never on i16[6].
+			// An earlier `cr.Type != 0` gate wrongly dropped the many
+			// solid walls whose collide record has type 0 (e.g. the
+			// tall stone walls id 4220/4221/4224, mask 0x009), letting
+			// the player walk straight through them.
+			if g.collide0 != nil && catID >= 0 && catID < len(g.collide0.Records) {
 				cr := g.collide0.Records[catID]
-				if cr.Type != 0 && cr.ZHeight > 0 && cr.Width > 0 {
+				mask := objectMask(cat, &inst)
+				// Keep a collider for any object that blocks now (mask
+				// != 0) or that can start blocking on use (an open door
+				// has mask 0 but must re-stamp when closed).
+				if mask != 0 || inst.Interactive {
 					cube := collision.Cube{
 						X:       wx + int(cr.AnchorX),
 						Y:       wy + int(cr.AnchorY),
 						XExtent: max(int(cr.XExtent), 0),
 						Width:   int(cr.Width),
-						Mask:    objectMask(cat, &inst),
+						Mask:    mask,
 					}
-					g.walkGrid.Stamp(cube)
+					g.walkGrid.Stamp(cube) // no-op when mask == 0
 					hw := max(int(cr.Width)/2, 1)
 					box := aabb{
 						X: cube.X,
