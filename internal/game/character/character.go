@@ -219,7 +219,7 @@ func (c *Character) Step(dx, dy float64) {
 		c.AnimSlot = 1 // walk (cVar4='A')
 	} else {
 		// Idle slot depends on weapon: 0 ('B') unarmed,
-		// 6 ('H' or helmet[0]) when wielding a weapon.
+		// 6 ('H' or weapon[0]) when wielding a weapon.
 		//
 		// The per-direction frame block (8 frames for B, varies per action) is
 		// a real breathing animation, let it cycle while standing still.
