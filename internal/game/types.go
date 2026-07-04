@@ -72,8 +72,3 @@ type floorCell struct {
 type aabb struct {
 	X, Y, W, H int
 }
-
-func (a aabb) intersects(b aabb) bool {
-	return a.X < b.X+b.W && a.X+a.W > b.X &&
-		a.Y < b.Y+b.H && a.Y+a.H > b.Y
-}
