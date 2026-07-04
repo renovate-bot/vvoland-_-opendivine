@@ -13,9 +13,10 @@ to be one small, reviewable change; each cites the RE doc that specs it.
   - [ ] typed command queue + per-tick dispatch in the engine's update order
   - [ ] route player input (move/use) through it
 - [ ] Engine-faithful collision — [formats/collide](re_docs/formats/collide.md)
-  - [ ] cube from `anchor_x/y` + `width` + `x_extent` + `z_height` (drop the square-AABB approximation)
-  - [ ] mover-vs-cube distance test; `type` gating
-  - [ ] block/slide resolution matching the `0x414/0x415` cluster behaviour
+  - [x] cube shape from `width` + `x_extent` anchored at world position (square-AABB approximation dropped)
+  - [x] mover-vs-cube sqrt-distance test; `type` gating
+  - [ ] `z_height` as a real vertical axis (currently only a has-cube gate)
+  - [ ] block/slide resolution matching the `0x414/0x415` cluster behaviour (engine primitive still diffuse in collide.md 🟡; axis-separated slide kept)
 - [ ] Pathfinding — [pathfinding](re_docs/pathfinding.md)
   - [ ] half-cell walkability grid from collide + height
   - [ ] A*: 8-dir, displacement-derived costs, 80-unit climb cap

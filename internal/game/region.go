@@ -10,6 +10,7 @@ import (
 
 	"github.com/hajimehoshi/ebiten/v2"
 
+	"grono.dev/opendivine/internal/game/collision"
 	"grono.dev/opendivine/pkg/assets/objects"
 	"grono.dev/opendivine/pkg/assets/world"
 )
@@ -77,17 +78,29 @@ func (g *Game) loadRegion(n int) error {
 					inst.SpriteH = int(e.Height)
 				}
 			}
-			// Build collision rect for blocker objects.
-			// Width-zero / no-Z entries (decals, ground stains) don't block.
-			// A door spawned open (no sb_closed) starts passable.
+			// Build the collision cube for blocker objects
+			// (re_docs/formats/collide.md): anchored at the object's
+			// world position, spanning [wx, wx+Width] horizontally
+			// (centre = anchor + width/2 — NOT centred on the anchor)
+			// and ±Width/2 vertically, with XExtent as the asymmetric
+			// rightward reach. Width-zero / no-Z entries (decals,
+			// ground stains) don't block. A door spawned open (no
+			// sb_closed) starts passable.
 			if g.collide0 != nil && catID < len(g.collide0.Records) {
 				cr := g.collide0.Records[catID]
 				if cr.Type != 0 && cr.ZHeight > 0 && cr.Width > 0 {
+					cube := collision.Cube{
+						X:       float64(wx),
+						Y:       float64(wy),
+						Width:   float64(cr.Width),
+						XExtent: float64(max(cr.XExtent, 0)),
+						Enabled: !(inst.ToggleCollider && inst.Open),
+					}
+					reach := max(int(cr.Width), int(cr.XExtent))
 					hw := max(int(cr.Width)/2, 1)
-					box := aabb{X: wx - hw, Y: wy - hw, W: hw * 2, H: hw * 2}
+					box := aabb{X: wx, Y: wy - hw, W: reach, H: hw * 2}
 					inst.ColliderIdx = len(g.colliders)
-					enabled := !(inst.ToggleCollider && inst.Open)
-					g.colliders = append(g.colliders, collider{box: box, enabled: enabled})
+					g.colliders = append(g.colliders, collider{cube: cube, box: box})
 				}
 			}
 			g.insts = append(g.insts, inst)

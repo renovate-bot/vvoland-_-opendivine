@@ -202,7 +202,7 @@ func (g *Game) tryInteract(wx, wy float64) bool {
 
 func (g *Game) interactionDistance(in *objectInst) float64 {
 	if in.ColliderIdx >= 0 && in.ColliderIdx < len(g.colliders) {
-		return pointAABBDistance(g.player.X, g.player.Y, g.colliders[in.ColliderIdx].box)
+		return g.colliders[in.ColliderIdx].cube.Distance(g.player.X, g.player.Y)
 	}
 
 	w, h := in.SpriteW, in.SpriteH
@@ -295,25 +295,29 @@ func (g *Game) useObject(in *objectInst) {
 	}
 	in.Open = !in.Open
 	if in.ToggleCollider && in.ColliderIdx >= 0 {
-		g.colliders[in.ColliderIdx].enabled = !in.Open
+		g.colliders[in.ColliderIdx].cube.Enabled = !in.Open
 	}
 }
 
-// playerOnCollider reports whether the player's footprint overlaps a collider
-// box, so a door can't be closed while the player stands in it.
+// playerOnCollider reports whether the player's footprint overlaps a
+// collider's cube, so a door can't be closed onto the player. Uses the
+// same narrow phase as movement, ignoring the cube's disabled state
+// (an open door's cube is disabled precisely when this check matters).
 func (g *Game) playerOnCollider(idx int) bool {
-	const half = 6
-	pb := aabb{X: int(g.player.X) - half, Y: int(g.player.Y) - half, W: half * 2, H: half * 2}
-	return pb.intersects(g.colliders[idx].box)
+	const playerR = 6
+	c := g.colliders[idx].cube
+	return c.Distance(g.player.X, g.player.Y) < c.Width/2+playerR
 }
 
-// playerBlocked reports whether the player's footprint (a small AABB centered
-// on (px, py)) overlaps any wall collider.
-// Uses the 64×64 grid bucket index, the player overlaps at most 4 buckets so
-// the per-tick cost is bounded by max-colliders-per-bucket.
+// playerBlocked reports whether a mover at (px, py) is blocked by any
+// enabled cube — the engine's sqrt-distance narrow phase
+// (re_docs/formats/collide.md) over a cell-grid broad phase (the
+// engine's own shape: FUN_00415120 over the FUN_00571df0 cube
+// cell-query). The player overlaps a handful of buckets so the
+// per-tick cost is bounded by max-colliders-per-bucket.
 func (g *Game) playerBlocked(px, py float64) bool {
-	const half = 6 // hero footprint half-extent in world pixels
-	pb := aabb{X: int(px) - half, Y: int(py) - half, W: half * 2, H: half * 2}
+	const playerR = 6 // hero footprint radius in world pixels
+	pb := aabb{X: int(px) - playerR, Y: int(py) - playerR, W: playerR * 2, H: playerR * 2}
 	minCX := pb.X / cellPx
 	maxCX := (pb.X + pb.W - 1) / cellPx
 	minCY := pb.Y / cellPx
@@ -321,8 +325,7 @@ func (g *Game) playerBlocked(px, py float64) bool {
 	for cy := minCY; cy <= maxCY; cy++ {
 		for cx := minCX; cx <= maxCX; cx++ {
 			for _, idx := range g.colliderGrid[cy*worldCellsX+cx] {
-				c := g.colliders[idx]
-				if c.enabled && pb.intersects(c.box) {
+				if g.colliders[idx].cube.Blocks(px, py, playerR) {
 					return true
 				}
 			}
