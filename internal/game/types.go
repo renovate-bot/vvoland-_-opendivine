@@ -32,14 +32,17 @@ type objectInst struct {
 	// of layer.
 	Elev int
 
-	// Interactive marks an object the player can use; see
-	// re_docs/object-interaction.md. ToggleCollider marks the currently wired
-	// door/chest subset whose blocker flips on use. Open is its runtime
-	// open/closed state (the engine's sb_closed bit). ColliderIdx indexes its
-	// blocker in g.colliders, or -1 if it has none.
+	// Interactive marks an object the player can use (sb_door / sb_chest /
+	// sb_lever kind bits or the sb_use_class behaviour flag; see
+	// re_docs/object-interaction.md). ToggleCollider marks doors, whose
+	// blocker flips on use. Open is the runtime open/closed state (the
+	// inverse of the engine's sb_closed bit). Locked mirrors sb_locked —
+	// a hard gate until unlocked (keys not wired yet). ColliderIdx indexes
+	// the blocker in g.colliders, or -1 if it has none.
 	Interactive    bool
 	ToggleCollider bool
 	Open           bool
+	Locked         bool
 	ColliderIdx    int
 }
 

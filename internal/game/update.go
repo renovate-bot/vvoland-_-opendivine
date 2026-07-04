@@ -282,17 +282,21 @@ func (g *Game) objectContainsWorld(in *objectInst, wx, wy float64) bool {
 	return dx*dx+dy*dy < footHitR2
 }
 
-// useObject toggles a door/chest between open and closed and flips its collider
-// so an open object is passable. A door is never closed onto the player.
+// useObject toggles a door/chest between open and closed, flipping a door's
+// collider so an open door is passable. sb_locked gates opening outright
+// (key-based unlocking is not wired yet). A door is never closed onto the
+// player.
 func (g *Game) useObject(in *objectInst) {
-	if !in.ToggleCollider || in.ColliderIdx < 0 {
+	if in.Locked && !in.Open {
 		return
 	}
-	if in.Open && g.playerOnCollider(in.ColliderIdx) {
+	if in.Open && in.ToggleCollider && in.ColliderIdx >= 0 && g.playerOnCollider(in.ColliderIdx) {
 		return
 	}
 	in.Open = !in.Open
-	g.colliders[in.ColliderIdx].enabled = !in.Open
+	if in.ToggleCollider && in.ColliderIdx >= 0 {
+		g.colliders[in.ColliderIdx].enabled = !in.Open
+	}
 }
 
 // playerOnCollider reports whether the player's footprint overlaps a collider

@@ -69,7 +69,7 @@ func (g *Game) loadRegion(n int) error {
 			var cat *objects.Object
 			if g.catalog != nil && catID >= 0 && catID < len(g.catalog.Entries) {
 				cat = &g.catalog.Entries[catID]
-				inst.Interactive, inst.ToggleCollider = objectInteractionFlags(cat, 0)
+				classifyInteraction(&inst, cat)
 			}
 			if g.objReader != nil {
 				if e, err := g.objReader.Entry(catID); err == nil {
@@ -78,20 +78,16 @@ func (g *Game) loadRegion(n int) error {
 				}
 			}
 			// Build collision rect for blocker objects.
-			// Type=1 - static obstacle,
-			// Type=2 - interactive (door, chest): blocks while closed, but the
-			// player can open it to pass (see useObject / tryInteract).
 			// Width-zero / no-Z entries (decals, ground stains) don't block.
+			// A door spawned open (no sb_closed) starts passable.
 			if g.collide0 != nil && catID < len(g.collide0.Records) {
 				cr := g.collide0.Records[catID]
 				if cr.Type != 0 && cr.ZHeight > 0 && cr.Width > 0 {
 					hw := max(int(cr.Width)/2, 1)
 					box := aabb{X: wx - hw, Y: wy - hw, W: hw * 2, H: hw * 2}
 					inst.ColliderIdx = len(g.colliders)
-					interactive, toggleCollider := objectInteractionFlags(cat, cr.Type)
-					inst.Interactive = inst.Interactive || interactive
-					inst.ToggleCollider = inst.ToggleCollider || toggleCollider
-					g.colliders = append(g.colliders, collider{box: box, enabled: true})
+					enabled := !(inst.ToggleCollider && inst.Open)
+					g.colliders = append(g.colliders, collider{box: box, enabled: enabled})
 				}
 			}
 			g.insts = append(g.insts, inst)
@@ -143,13 +139,27 @@ func (g *Game) loadRegion(n int) error {
 	return nil
 }
 
-func objectInteractionFlags(cat *objects.Object, collideType int16) (interactive, toggleCollider bool) {
-	if cat != nil && cat.HasSB(objects.SBUseClass) {
-		interactive = true
+// classifyInteraction seeds the instance's interaction state from the
+// catalogue entry, per the documented instance flags word
+// (re_docs/object-interaction.md): the kind bits sb_door/sb_chest/sb_lever
+// mark usable objects, sb_closed is the initial open/closed state, and
+// sb_locked is the hard gate CObject::Use checks before opening. Only a
+// door's blocker flips on use — a chest stays blocking while its lid opens.
+//
+// This replaces an earlier heuristic that classified by collide Type==2
+// minus SBLightBlocker, which had no doc basis and misfired on walls.
+func classifyInteraction(inst *objectInst, cat *objects.Object) {
+	if cat.HasSB(objects.SBUseClass) {
+		inst.Interactive = true
 	}
-	if collideType == 2 && (cat == nil || !cat.HasSB(objects.SBLightBlocker)) {
-		interactive = true
-		toggleCollider = true
+	door := cat.HasS(objects.SDoor)
+	chest := cat.HasS(objects.SChest)
+	if door || chest || cat.HasS(objects.SLever) {
+		inst.Interactive = true
 	}
-	return interactive, toggleCollider
+	inst.ToggleCollider = door
+	if door || chest {
+		inst.Open = !cat.HasS(objects.SClosed)
+	}
+	inst.Locked = cat.HasS(objects.SLocked)
 }

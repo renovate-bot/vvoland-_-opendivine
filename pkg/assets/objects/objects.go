@@ -15,6 +15,23 @@ import (
 // EntrySize is the on-disk stride.
 const EntrySize = 0x94
 
+// Instance-state bit indices in `Object.FlagsA` (the s_* flag word).
+//
+// The bit map is the runtime instance flags word documented in
+// re_docs/object-interaction.md; the catalogue seeds instances with the
+// same ordering (verified against the shipped objects.000: door-named
+// entries set bit 5 + bit 25, chests bit 10, levers bit 6). Kind bits
+// mark what the object is; SClosed/SLocked are the initial runtime
+// state.
+const (
+	SKey    = 1 << 4  // value: required key id
+	SDoor   = 1 << 5  // value: marks a door
+	SLever  = 1 << 6  // value: marks a lever
+	SChest  = 1 << 10 // value: marks a chest/container
+	SLocked = 1 << 21 // bool: locked (hard gate until unlocked)
+	SClosed = 1 << 25 // bool: starts closed
+)
+
 // Static-behaviour bit indices in `Object.SBFlags`.
 const (
 	SBSleep             = 1 << 0
@@ -145,6 +162,10 @@ func decodeEntry(o *Object, entry []byte) {
 // HasSB returns whether the entry has a particular static-behaviour
 // flag set. Use one of the SB* constants.
 func (o Object) HasSB(mask uint32) bool { return o.SBFlags&mask != 0 }
+
+// HasS returns whether the entry has a particular instance-state flag
+// set in FlagsA. Use one of the S* constants.
+func (o Object) HasS(mask uint32) bool { return o.FlagsA&mask != 0 }
 
 func readNulPadded(b []byte) string {
 	for i, c := range b {
