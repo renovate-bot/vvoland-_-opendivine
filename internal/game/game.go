@@ -7,6 +7,7 @@ import (
 
 	"grono.dev/opendivine/internal/game/character"
 	"grono.dev/opendivine/internal/game/collision"
+	"grono.dev/opendivine/internal/game/mover"
 	"grono.dev/opendivine/pkg/assets/collide"
 	"grono.dev/opendivine/pkg/assets/cpacked"
 	"grono.dev/opendivine/pkg/assets/objects"
@@ -30,6 +31,10 @@ type Game struct {
 	// their cubes into it and movers test cells by mask
 	// (re_docs/formats/collide.md).
 	walkGrid *collision.Grid
+	// mover drives the player with the engine's leg-based stepper
+	// (internal/game/mover); it is the source of truth for player
+	// position and is rebuilt with the grid on each region load.
+	mover *mover.Mover
 
 	camX, camY float64 // world pixel at screen center
 	zoom       float64 // output_pixel / world_pixel

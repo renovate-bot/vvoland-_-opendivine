@@ -15,8 +15,10 @@ to be one small, reviewable change; each cites the RE doc that specs it.
 - [ ] Engine-faithful collision — [formats/collide](re_docs/formats/collide.md)
   - [x] walkability cell grid: cube rasterization (inclusive rect stamp, masks from the object flags word, blocker refcount) — the engine has no per-move geometric test
   - [x] cell-granular mover blocking by mask; doors re-rasterize on use
-  - [ ] full `fcn.0056f3c0` walkability port: DIR16 corner/pass-through chains + the 80-unit climb gate (needs the height bytes from height.x)
-  - [ ] the 16-direction greedy leg stepper (the engine's mover + its blocked-leg cancel; with NPC movement/pathfinding)
+  - [x] `fcn.0056f3c0` walkability: DIR16 destination + corner/pass-through chains (cell-space test, `internal/game/mover`)
+  - [ ] the 80-unit climb gate in walkability (needs the height bytes from height.x)
+  - [x] the 16-direction greedy leg stepper for the player: discrete occupancy cell + interpolated sprite, blocked-leg re-aim slide (`internal/game/mover`)
+  - [ ] extend the stepper to NPCs and the blocked-leg full stop
   - [ ] pin the player-path mask (steppers use 0x13; we add the closed-door bit so closed doors block, unverified against the engine)
 - [ ] Pathfinding — [pathfinding](re_docs/pathfinding.md)
   - [ ] half-cell walkability grid from collide + height

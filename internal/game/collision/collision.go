@@ -71,6 +71,23 @@ func CellIndex(x, y int) (idx int, ok bool) {
 	return cellIndex(x, y)
 }
 
+// CellUV returns the (u, v) cell coordinates for world (x, y):
+// u = (x+y)>>5, v = y>>5. Movers work in (u, v) space to apply the
+// engine's per-direction corner-cell offsets.
+func CellUV(x, y int) (u, v int) {
+	return (x + y) >> 5, y >> 5
+}
+
+// BlockedUV reports whether cell (u, v) has any of the mask bits set.
+// Out-of-range cells (past the engine's index gate) count as blocked.
+func (g *Grid) BlockedUV(u, v int, mask uint16) bool {
+	idx := v<<10 + u
+	if idx < 0 || idx > gridMax {
+		return true
+	}
+	return g.flags[idx]&mask != 0
+}
+
 // Blocked reports whether the cell containing world (x, y) has any of
 // the mask bits set — the walkability core (destination-cell test of
 // fcn.0056f3c0; the per-direction corner chains and the climb gate

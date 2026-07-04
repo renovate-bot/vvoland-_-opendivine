@@ -75,17 +75,17 @@ func (g *Game) Update() error {
 		g.player.ForceSlot = -1
 	}
 	// Movement speed in world pixels per tick.  Engine-traced:
-	// hero base walk = 2 px/frame in 1× iso projection (FUN_004a3*).
-	// 4 px feels right at the game's typical zoom; refine once
-	// the actual move-tick cadence is implemented.
-	speed := 4.0
+	// hero base walk = 2 px/frame, and the loop runs at the engine's
+	// 40 fps tick (SetTPS in Run), so this is 80 px/s like the original.
+	// Shift is a debug fast-walk with no engine counterpart.
+	speed := heroWalkSpeed
 	if ebiten.IsKeyPressed(ebiten.KeyShift) {
 		speed *= 4
 	}
 
 	// Left-click sets a click-to-walk destination at the world point
-	// under the cursor.  The hero then walks in a straight line each
-	// tick until arrival or a collision.  WASD overrides and cancels
+	// under the cursor.  The hero then walks toward it, leg by leg, until
+	// arrival or a wall it cannot get around.  WASD overrides and cancels
 	// the destination.
 	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
 		mx, my := ebiten.CursorPosition()
@@ -100,69 +100,57 @@ func (g *Game) Update() error {
 		}
 	}
 
-	dx, dy := 0.0, 0.0
-	wasdActive := false
+	// Raw key heading (−1/0/+1 per axis); the stepper turns it into legs.
+	hx, hy := 0.0, 0.0
 	if ebiten.IsKeyPressed(ebiten.KeyW) || ebiten.IsKeyPressed(ebiten.KeyArrowUp) {
-		dy -= speed
-		wasdActive = true
+		hy -= 1
 	}
 	if ebiten.IsKeyPressed(ebiten.KeyS) || ebiten.IsKeyPressed(ebiten.KeyArrowDown) {
-		dy += speed
-		wasdActive = true
+		hy += 1
 	}
 	if ebiten.IsKeyPressed(ebiten.KeyA) || ebiten.IsKeyPressed(ebiten.KeyArrowLeft) {
-		dx -= speed
-		wasdActive = true
+		hx -= 1
 	}
 	if ebiten.IsKeyPressed(ebiten.KeyD) || ebiten.IsKeyPressed(ebiten.KeyArrowRight) {
-		dx += speed
-		wasdActive = true
+		hx += 1
 	}
+	wasdActive := hx != 0 || hy != 0
 	if wasdActive {
 		g.hasDest = false // any keyboard input cancels the click target
-	} else if g.hasDest {
-		ddx := g.destX - g.player.X
-		ddy := g.destY - g.player.Y
-		dist := math.Hypot(ddx, ddy)
-		if dist <= speed {
-			// Arrived (within one step), snap and stop.
-			dx, dy = ddx, ddy
-			g.hasDest = false
-		} else {
-			dx = ddx / dist * speed
-			dy = ddy / dist * speed
-		}
 	}
+
 	if g.cameraFollow {
-		// Separate-axis sliding: try X then Y, reject either if it would put
-		// the player into a collider.
-		// Lets the player slide along walls instead of getting stuck on the
-		// corner.
-		nx := clamp(g.player.X+dx, 0, worldXPx)
-		ny := clamp(g.player.Y+dy, 0, worldYPx)
-		if g.playerBlocked(nx, g.player.Y) {
-			nx = g.player.X
+		// Leg-based stepper (re_docs/formats/collide.md, internal/game/mover):
+		// choose a goal, advance one leg-frame, then sync the sprite to the
+		// mover. The mover owns a discrete occupancy cell advanced one cell
+		// per leg, so there is no free-slide / floor()-of-position jitter.
+		g.mover.Speed = speed
+		var goalX, goalY float64
+		active := false
+		switch {
+		case wasdActive:
+			// Aim far along the held heading; each leg re-aims to the nearest
+			// walkable 16-direction, which is what makes it slide along walls.
+			goalX = g.mover.X + hx*4096
+			goalY = g.mover.Y + hy*4096
+			active = true
+		case g.hasDest:
+			goalX, goalY = g.destX, g.destY
+			active = true
 		}
-		if g.playerBlocked(nx, ny) {
-			ny = g.player.Y
-		}
-		dx = nx - g.player.X
-		dy = ny - g.player.Y
-		g.player.X = nx
-		g.player.Y = ny
-		g.camX, g.camY = g.player.CameraTarget()
-		// Cancel click-to-walk if we got fully blocked, no point thrashing on
-		// the wall. Pathfinding TBD.
-		if g.hasDest && dx == 0 && dy == 0 {
+		vx, vy := g.mover.Update(goalX, goalY, active)
+		g.player.X = g.mover.X
+		g.player.Y = g.mover.Y
+		g.player.Step(vx, vy)
+		// Click target reached or fully walled: stop retrying it.
+		if g.hasDest && !wasdActive && vx == 0 && vy == 0 && !g.mover.Moving() {
 			g.hasDest = false
 		}
-		g.player.Step(dx, dy)
+		g.camX, g.camY = g.player.CameraTarget()
 	} else {
 		// Free pan, slower at higher zoom for fine framing.
-		panSpeed := dx / g.zoom
-		panSpeedY := dy / g.zoom
-		g.camX = clamp(g.camX+panSpeed, 0, worldXPx)
-		g.camY = clamp(g.camY+panSpeedY, 0, worldYPx)
+		g.camX = clamp(g.camX+hx*speed/g.zoom, 0, worldXPx)
+		g.camY = clamp(g.camY+hy*speed/g.zoom, 0, worldYPx)
 	}
 	if _, scrollY := ebiten.Wheel(); scrollY != 0 {
 		g.zoom *= 1.0 + 0.1*scrollY
@@ -330,13 +318,9 @@ func (g *Game) playerOnCollider(idx int) bool {
 // uses is not pinned in collide.md yet (the stepper mask is).
 const playerMask = collision.MoverMask | collision.MaskDoorClosed
 
-// playerBlocked reports whether the cell containing (px, py) is
-// blocked for the player — the engine's cell-granular walkability test
-// (re_docs/formats/collide.md; movers carry no radius and test whole
-// cells).
-func (g *Game) playerBlocked(px, py float64) bool {
-	return g.walkGrid.Blocked(int(px), int(py), playerMask)
-}
+// heroWalkSpeed is the hero's base walk speed in world px per 40 fps
+// tick (engine-traced: 2 px/frame = 80 px/s).
+const heroWalkSpeed = 2.0
 
 func clamp(v, lo, hi float64) float64 {
 	if v < lo {

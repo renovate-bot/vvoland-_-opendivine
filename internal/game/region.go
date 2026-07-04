@@ -11,6 +11,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 
 	"grono.dev/opendivine/internal/game/collision"
+	"grono.dev/opendivine/internal/game/mover"
 	"grono.dev/opendivine/pkg/assets/objects"
 	"grono.dev/opendivine/pkg/assets/world"
 )
@@ -146,6 +147,10 @@ func (g *Game) loadRegion(n int) error {
 		}
 		return g.insts[i].Layer < g.insts[j].Layer
 	})
+
+	// Rebuild the mover against the fresh grid, keeping the player where
+	// it stood (position carries across region switches).
+	g.mover = mover.New(g.walkGrid, playerMask, g.player.X, g.player.Y, heroWalkSpeed)
 
 	log.Printf("region %d: %d floor cells, %d object instances, %d colliders",
 		n, len(g.cells), len(g.insts), len(g.colliders))

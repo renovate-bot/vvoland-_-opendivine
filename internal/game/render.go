@@ -331,7 +331,11 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		if dot < 1 {
 			dot = 1
 		}
-		playerCell, playerOK := collision.CellIndex(int(g.player.X), int(g.player.Y))
+		// The mover's occupancy cell (leg destination, or standing cell
+		// when idle) is the engine's notion of "the cell the player is
+		// in" — discrete and advanced per leg, so it tracks the sprite
+		// without the floor()-of-live-position lead/lag.
+		playerCell, playerOK := g.mover.CellIndex()
 		for wy := int(viewMinY) &^ (sample - 1); wy < int(viewMaxY); wy += sample {
 			for wx := int(viewMinX) &^ (sample - 1); wx < int(viewMaxX); wx += sample {
 				col := red
