@@ -15,24 +15,26 @@ var errStringTooLong = errors.New("story: string exceeds 1 MiB")
 type reader struct {
 	r      io.Reader
 	cipher byte
+	offset int64
 }
 
 func (r *reader) u8() (byte, error) {
 	var b [1]byte
-	_, err := io.ReadFull(r.r, b[:])
+	err := r.bytes(b[:])
 	return b[0], err
 }
 
 func (r *reader) u32() (uint32, error) {
 	var b [4]byte
-	if _, err := io.ReadFull(r.r, b[:]); err != nil {
+	if err := r.bytes(b[:]); err != nil {
 		return 0, err
 	}
 	return binary.LittleEndian.Uint32(b[:]), nil
 }
 
 func (r *reader) bytes(dst []byte) error {
-	_, err := io.ReadFull(r.r, dst)
+	n, err := io.ReadFull(r.r, dst)
+	r.offset += int64(n)
 	return err
 }
 

@@ -32,6 +32,106 @@ func storyHeaderFixture() []byte {
 	return buf.Bytes()
 }
 
+func TestRealTables(t *testing.T) {
+	gamedata := testutils.TestGameData(t)
+	path := filepath.Join(gamedata, "main/startup/story.000")
+
+	f, err := os.Open(path)
+	assert.NilError(t, err)
+	defer f.Close()
+
+	tables, err := DecodeTables(f)
+	assert.NilError(t, err)
+	assert.Equal(t, len(tables.Symbols), 14322)
+	assert.Equal(t, len(tables.Functions), 1175)
+	assert.Equal(t, tables.BytesRead, int64(682095))
+
+	distribution := map[FunctionType]int{}
+	foundObjectUsed := false
+	for _, function := range tables.Functions {
+		distribution[function.Type]++
+		if function.Name == "ObjectUsed" {
+			foundObjectUsed = true
+			assert.Equal(t, function.Type, FunctionEvent)
+		}
+	}
+	assert.Assert(t, foundObjectUsed)
+	assert.Assert(t, cmp.DeepEqual(distribution, map[FunctionType]int{
+		FunctionEvent:    77,
+		FunctionQuery:    58,
+		FunctionCall:     187,
+		FunctionDatabase: 446,
+		FunctionProc:     392,
+		FunctionSysQuery: 10,
+		FunctionSysCall:  5,
+	}))
+}
+
+func TestDecodeTables(t *testing.T) {
+	t.Parallel()
+
+	fixture := storyTablesFixture()
+	tables, err := DecodeTables(bytes.NewReader(fixture))
+	assert.NilError(t, err)
+	assert.Equal(t, tables.BytesRead, int64(len(fixture)))
+	assert.Assert(t, cmp.DeepEqual(tables.Symbols, []Symbol{
+		{Name: "OBJECT_start_ladder", Type: SymbolObject, ID: 123},
+		{Name: "LOCATION_basement_exit", Type: SymbolLocation, ID: 456},
+	}))
+	assert.Equal(t, len(tables.Functions), 1)
+	function := tables.Functions[0]
+	assert.Equal(t, function.ID, uint32(6679))
+	assert.Equal(t, function.Type, FunctionQuery)
+	assert.Equal(t, function.Name, "RealDivide")
+	assert.Assert(t, cmp.DeepEqual(function.Signature.OutputMask, []byte{0x10}))
+	assert.Assert(t, cmp.DeepEqual(function.Signature.ParameterTypes, []uint32{1, 1, 1, 1}))
+}
+
+func TestDecodeTablesRejectsMismatchedSymbolType(t *testing.T) {
+	t.Parallel()
+
+	fixture := storyTablesFixture()
+	// Header + symbol count + encoded first symbol + one-byte type.
+	offset := len(storyHeaderFixture()) + 4 + len("OBJECT_start_ladder") + 1 + 1
+	binary.LittleEndian.PutUint32(fixture[offset:], uint32(SymbolNPC))
+	_, err := DecodeTables(bytes.NewReader(fixture))
+	assert.ErrorContains(t, err, ErrBadSymbol.Error())
+}
+
+func writeStoryString(buf *bytes.Buffer, value string) {
+	for _, b := range append([]byte(value), 0) {
+		buf.WriteByte(b ^ version14Cipher)
+	}
+}
+
+func storyTablesFixture() []byte {
+	var buf bytes.Buffer
+	buf.Write(storyHeaderFixture())
+
+	_ = binary.Write(&buf, binary.LittleEndian, uint32(2))
+	writeStoryString(&buf, "OBJECT_start_ladder")
+	buf.WriteByte(byte(SymbolObject))
+	_ = binary.Write(&buf, binary.LittleEndian, uint32(SymbolObject))
+	_ = binary.Write(&buf, binary.LittleEndian, uint32(123))
+	buf.Write(make([]byte, 8))
+	writeStoryString(&buf, "LOCATION_basement_exit")
+	buf.WriteByte(byte(SymbolLocation))
+	_ = binary.Write(&buf, binary.LittleEndian, uint32(SymbolLocation))
+	_ = binary.Write(&buf, binary.LittleEndian, uint32(456))
+	buf.Write(make([]byte, 8))
+
+	_ = binary.Write(&buf, binary.LittleEndian, uint32(1))
+	prefix := [8]uint32{11, 22, 33, 6679, 55, 66, 77, 88}
+	_ = binary.Write(&buf, binary.LittleEndian, prefix)
+	buf.WriteByte(byte(FunctionQuery))
+	writeStoryString(&buf, "RealDivide")
+	_ = binary.Write(&buf, binary.LittleEndian, uint32(1))
+	buf.WriteByte(0x10)
+	buf.WriteByte(4)
+	_ = binary.Write(&buf, binary.LittleEndian, [4]uint32{1, 1, 1, 1})
+	return buf.Bytes()
+}
+
 func TestDecodeHeader(t *testing.T) {
 	t.Parallel()
 

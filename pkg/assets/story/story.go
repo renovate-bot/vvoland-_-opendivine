@@ -42,7 +42,10 @@ type Header struct {
 // It leaves r positioned at the DIVObject table count at offset 190.
 func DecodeHeader(r io.Reader) (*Header, error) {
 	rd := &reader{r: r}
+	return decodeHeader(rd)
+}
 
+func decodeHeader(rd *reader) (*Header, error) {
 	marker, err := rd.u8()
 	if err != nil {
 		return nil, fmt.Errorf("story: read marker: %w", err)
