@@ -48,11 +48,10 @@ struct Record {
                                //   (519k of 524k cells observed in world.x0).
     i16   _pad_off4;           // always 0 in shipped data
     u8    object_count;        // 0 = no per-cell objects (16-byte header still present)
-    u8    flag_off7;           // bit 5 (0x20) = "skip this object" in the upgrade path
+    u8    cell_effect_flags;   // reported displayed-cell-effect flags; see below
     i16   _pad_off8;           // always 0
-    i16   header_h5;           // small enum, 15 distinct values; pairs with h6
-    i16   header_h6;           // mirrors h5's distribution (likely a precomputed
-                               //   adjacency / neighbour-mask used by the engine renderer)
+    i16   cell_height_a;       // reported cell elevation; observed equal to height_b
+    i16   cell_height_b;       // reported cell elevation; observed equal to height_a
     i16   _pad_off14;          // always 0
     Object objects[object_count];
 };
@@ -78,6 +77,48 @@ loop walks the 1024 chunk-offsets table (`world.x*`), reads each
 sector into a buffer, then iterates 512 cells per sector consuming
 2 bytes of pointer-table per step and dispatching object placements
 via `FUN_00572100`.
+
+### Cell-header effect flags and paired height fields (research)
+
+The 16-byte record above matches the sample and field breakdown reported in
+[issue 10](https://github.com/vvoland/opendivine/issues/10). In that reading,
+the physical byte ranges are:
+
+| Bytes | Offset | Meaning |
+|---|---:|---|
+| 1–2 | `+0x00` | Lower/floor texture id (`floor_tile_id`) |
+| 3–4 | `+0x02` | Upper/overlay texture id (`overlay_tile_id`) |
+| 5–6 | `+0x04` | Unknown; observed `0x0000` |
+| 7 | `+0x06` | Per-cell object count |
+| 8 | `+0x07` | Displayed-cell-effect flags |
+| 9–10 | `+0x08` | Unknown; observed `0x0000` |
+| 11–12 | `+0x0a` | Cell elevation value A |
+| 13–14 | `+0x0c` | Cell elevation value B, observed equal to A |
+| 15–16 | `+0x0e` | Unknown; observed `0x0000` |
+
+The reported effect-flag bits are:
+
+| Bit | Reported meaning |
+|---:|---|
+| `0x02` | Water |
+| `0x04` | Indoor/room; entering the cell hides roofs and dims ambient lighting |
+| `0x08` | Fog |
+| `0x10` | Apply the effect to the upper diagonal |
+| `0x20` | Apply the effect to the lower diagonal |
+| `0x40` | Triggered when an Osiris object is present in the cell |
+
+Bit `0x01` and the remaining bits are not identified by this report. The
+paired elevation values were reported as visually inert when changed. This
+interpretation is not yet confirmed by a binary consumer trace: the current
+parser retains the fields but the viewer does not use them. In particular, an
+earlier upgrade-path observation associated bit `0x20` with "skip this object";
+whether that is a context-dependent use or a misidentification remains open.
+
+These fields belong to the on-disk `world.x<n>` record. They are distinct from
+the runtime collision flags in [`formats/collide.md`](collide.md), the
+per-cell terrain data in `height.x<n>` described in
+[`render-trace.md`](../render-trace.md), and the fog-of-war shroud in
+[`formats/shroud.md`](shroud.md).
 
 **Bit-field extraction confirmed** (parser at `0x0059d0c0`): `ord_kind &
 0x3ff` → bits 0..9 (the `0..1023` value), `(ord_kind >> 0xa) & 0x3fff` →

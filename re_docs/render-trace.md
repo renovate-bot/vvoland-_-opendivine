@@ -336,9 +336,10 @@ basement floor itself carries a non-zero terrain byte (e.g.
 Joram's basement cells s=58–59, c=133–135 have b7 = 4–20).
 Until the actual draw-time application is traced, the cell's
 `HeaderByte7` is parsed (`pkg/assets/world`) but dropped by the port —
-not consumed. (Note the doc tension with world.md, which describes the
-same byte as `flag_off7` with bit `0x20` = "skip this object"; whether
-it is elevation, flags, or both per context is unresolved.)
+not consumed. (The current `world.md` interpretation describes the same
+byte as the reported cell-effect flags; an earlier upgrade-path observation
+associated bit `0x20` with "skip this object". Whether that is a
+context-dependent use or a misidentification remains unresolved.)
 
 **Known gap:** multi-section castle walls that span a terrain
 transition (e.g. at world (16695, 7030)) still show a vertical
