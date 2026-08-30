@@ -8,6 +8,7 @@ import (
 	"grono.dev/opendivine/internal/game/character"
 	"grono.dev/opendivine/internal/game/collision"
 	"grono.dev/opendivine/internal/game/mover"
+	"grono.dev/opendivine/pkg/assets/apacked"
 	"grono.dev/opendivine/pkg/assets/collide"
 	"grono.dev/opendivine/pkg/assets/cpacked"
 	"grono.dev/opendivine/pkg/assets/objects"
@@ -20,9 +21,12 @@ type Game struct {
 	floorTiles  map[int16]*ebiten.Image // lazily decoded floor tiles
 	floorReader *cpacked.Reader
 	objSprites  map[int]*sprite // lazily decoded object sprites
-	objReader   *cpacked.Reader
-	catalog     *objects.Catalog // objects.000 (per-id SBFlags)
-	collide0    *collide.File    // per-cat-id cube data for imagelist 0
+	// objectAnimations is APackedi.1/APackedb.1, the animation table for
+	// world objects such as torches. Its frames point back into imagelist 0.
+	objectAnimations *apacked.File
+	objReader        *cpacked.Reader
+	catalog          *objects.Catalog // objects.000 (per-id SBFlags)
+	collide0         *collide.File    // per-cat-id cube data for imagelist 0
 
 	cells     []floorCell  // all populated cells, sorted by (CellY, CellX)
 	insts     []objectInst // all placed objects, sorted by (Layer, Y)

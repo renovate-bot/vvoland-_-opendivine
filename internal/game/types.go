@@ -11,6 +11,7 @@ import (
 const (
 	defaultWindowW = 1280
 	defaultWindowH = 720
+	engineTPS      = 40
 	cellPx         = 64                   // engine cell size in native pixels
 	worldCellsX    = 512                  // cells horizontally per region
 	worldCellsY    = 1024                 // cells vertically per region
@@ -27,8 +28,14 @@ type sprite struct {
 type objectInst struct {
 	X, Y, ObjID int
 	Layer       int
-	SpriteW     int
-	SpriteH     int
+	// AnimationIndex selects an APacked world-object animation; -1 means the
+	// catalogue entry has no animation. AnimationFrame is the selected frame;
+	// AnimationTick counts the ticks spent showing it for ambient animations.
+	AnimationIndex int32
+	AnimationFrame int
+	AnimationTick  int
+	SpriteW        int
+	SpriteH        int
 	// Elev is the precomputed Y offset.
 	// For most objects Elev = Layer (the engine's cumulative pixel elevation
 	// per FUN_005830c0).

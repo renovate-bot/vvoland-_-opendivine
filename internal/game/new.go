@@ -41,6 +41,11 @@ func New(cfg Config) (*Game, error) {
 		return nil, fmt.Errorf("imagelist %d: %w", objectImagelistID, err)
 	}
 	g.objReader = or
+	if animations, err := openObjectAnimations(cfg.GamedataDir); err != nil {
+		log.Printf("object animations: %v (animated objects will use their static sprite)", err)
+	} else {
+		g.objectAnimations = animations
+	}
 
 	cf, err := os.Open(cfg.GamedataDir + "/static/objects.000")
 	if err != nil {

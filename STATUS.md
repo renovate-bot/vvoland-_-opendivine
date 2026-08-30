@@ -14,6 +14,7 @@ reverse-engineering knowledge base behind it is complete
 
 - [x] The whole world renders — terrain, decals, objects, with the
   original engine's depth sorting
+- [x] Ambient animated world props — torches and candles
 - [x] Walk around: click-to-walk and WASD, camera follow, zoom
 - [x] Walls and furniture block you (the engine's cell-grid collision; opening a door really unblocks its cells)
 - [ ] Walking around obstacles automatically (pathfinding)

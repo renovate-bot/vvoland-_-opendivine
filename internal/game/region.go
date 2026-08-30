@@ -61,16 +61,18 @@ func (g *Game) loadRegion(n int) error {
 			wx := cellX + int(o.SubX)
 			wy := cellY + int(o.SubY)
 			inst := objectInst{
-				X:           wx,
-				Y:           wy,
-				ObjID:       catID,
-				Layer:       int(o.Layer),
-				Elev:        int(o.Layer),
-				ColliderIdx: -1,
+				X:              wx,
+				Y:              wy,
+				ObjID:          catID,
+				Layer:          int(o.Layer),
+				AnimationIndex: -1,
+				Elev:           int(o.Layer),
+				ColliderIdx:    -1,
 			}
 			var cat *objects.Object
 			if g.catalog != nil && catID >= 0 && catID < len(g.catalog.Entries) {
 				cat = &g.catalog.Entries[catID]
+				inst.AnimationIndex = cat.AnimationIndex
 				classifyInteraction(&inst, cat)
 			}
 			if g.objReader != nil {

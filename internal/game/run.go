@@ -62,6 +62,9 @@ type Config struct {
 // SkipMenu bypasses the menu and goes straight to the world (matches
 // the pre-menu boot behaviour).
 func Run(cfg Config) error {
+	// The original engine advances simulation at 40 ticks per second. Keep
+	// animation and movement rates independent of Ebiten's 60 TPS default.
+	ebiten.SetTPS(engineTPS)
 	if cfg.Screenshot != "" {
 		g, err := New(cfg)
 		if err != nil {

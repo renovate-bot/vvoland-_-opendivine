@@ -404,9 +404,12 @@ render context.  Other promising candidates:
   layer-0 base sprite plus per-book sprites at higher layers.  If
   one of those sub-sprites is mis-anchored we'd see "broken
   rendering".
-- Per-frame animation: candles and similar are animated via
-  `AnimationIndex` → APacked.  Static frame 0 is wrong-looking but
-  not mis-positioned.
+- Ambient per-frame animation ✅: candles and similar non-interactive props use
+  `AnimationIndex` → `APackedi.1` → `APackedb.1`; the selected frame points
+  back into CPacked imagelist 0. The OpenDivine object renderer holds each
+  frame for four 40 Hz ticks (100 ms) and applies the frame's authored offsets.
+  Interactive objects keep their catalogue animation index for state-driven
+  open/close playback and do not loop while idle.
 
 ## SBPutOn elevation handler — FOUND
 

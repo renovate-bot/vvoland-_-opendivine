@@ -106,14 +106,14 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	// Returns the world Y the engine would use for ordering (used by character
 	// interleave).
 	drawInst := func(in objectInst) {
-		spr := g.objectSprite(in.ObjID)
-		if spr == nil {
+		img, offsetX, offsetY := g.objectImage(in)
+		if img == nil {
 			return
 		}
-		w := float64(spr.img.Bounds().Dx())
-		h := float64(spr.img.Bounds().Dy())
-		tlX := float64(in.X)
-		tlY := float64(in.Y - in.Elev)
+		w := float64(img.Bounds().Dx())
+		h := float64(img.Bounds().Dy())
+		tlX := float64(in.X + offsetX)
+		tlY := float64(in.Y - in.Elev + offsetY)
 		if tlX+w < viewMinX || tlX > viewMaxX || tlY+h < viewMinY || tlY > viewMaxY {
 			return
 		}
@@ -127,7 +127,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 			// frame is wired (re_docs/object-interaction.md).
 			op.ColorScale.ScaleAlpha(0.35)
 		}
-		screen.DrawImage(spr.img, op)
+		screen.DrawImage(img, op)
 		objDrawn++
 	}
 
@@ -200,14 +200,14 @@ func (g *Game) Draw(screen *ebiten.Image) {
 
 		for idx := range g.insts {
 			in := &g.insts[idx]
-			spr := g.objectSprite(in.ObjID)
-			if spr == nil {
+			img, offsetX, offsetY := g.objectImage(*in)
+			if img == nil {
 				continue
 			}
-			w := spr.img.Bounds().Dx()
-			h := spr.img.Bounds().Dy()
-			tlX := float64(in.X)
-			tlY := float64(in.Y - in.Elev)
+			w := img.Bounds().Dx()
+			h := img.Bounds().Dy()
+			tlX := float64(in.X + offsetX)
+			tlY := float64(in.Y - in.Elev + offsetY)
 			if tlX+float64(w) < viewMinX || tlX > viewMaxX ||
 				tlY+float64(h) < viewMinY || tlY > viewMaxY {
 				continue

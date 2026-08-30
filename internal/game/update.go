@@ -21,6 +21,7 @@ func (g *Game) Update() error {
 	if ebiten.IsKeyPressed(ebiten.KeyEscape) {
 		return ebiten.Termination
 	}
+	g.advanceObjectAnimations()
 	for n, k := range regionKeys {
 		if ebiten.IsKeyPressed(k) && g.region != n {
 			if err := g.loadRegion(n); err != nil {
@@ -74,9 +75,9 @@ func (g *Game) Update() error {
 	if inpututil.IsKeyJustPressed(ebiten.KeyBackslash) {
 		g.player.ForceSlot = -1
 	}
-	// Movement speed in world pixels per tick.  Engine-traced:
-	// hero base walk = 2 px/frame, and the loop runs at the engine's
-	// 40 fps tick (SetTPS in Run), so this is 80 px/s like the original.
+	// Movement speed in world pixels per tick. The old loop advanced at 60 TPS
+	// with a 2 px/tick player speed; use 3 px/tick at 40 TPS to preserve its
+	// 120 px/s pace while keeping the simulation at the engine's rate.
 	// Shift is a debug fast-walk with no engine counterpart.
 	speed := heroWalkSpeed
 	if ebiten.IsKeyPressed(ebiten.KeyShift) {
@@ -318,9 +319,8 @@ func (g *Game) playerOnCollider(idx int) bool {
 // uses is not pinned in collide.md yet (the stepper mask is).
 const playerMask = collision.MoverMask | collision.MaskDoorClosed
 
-// heroWalkSpeed is the hero's base walk speed in world px per 40 fps
-// tick (engine-traced: 2 px/frame = 80 px/s).
-const heroWalkSpeed = 2.0
+// heroWalkSpeed is the hero's base walk speed in world pixels per tick.
+const heroWalkSpeed = 4.0
 
 func clamp(v, lo, hi float64) float64 {
 	if v < lo {

@@ -40,20 +40,21 @@ sparse-RLE sprite format documented in [`cpacked.md`](cpacked.md).
 
 ## APacked family — animation metadata
 
-Six small index files (sizes 80 / 80 / 4 / 1 / 0 / 26 entries —
-APacked.5 is empty in the shipped install). The sprites these
-imagelists describe **are not in APacked themselves**; APacked is the
-animation table that maps `animation_index` (used by
-`static\objects.000` `AnimationIndex` field) to a *range* of sprite
-ids in **CPacked imagelist 1**.
+Seven small index files hold animation metadata. The sprites these
+files describe **are not in APacked themselves**; each APackedi record
+names an image bank and a range of frames in APackedb. World objects use
+`AnimationIndex` as a record number in `APackedi.1`; that list names
+CPacked imagelist 0. Character classes use `APackedi.0`, whose frames
+name CPacked imagelist 1.
 
 APacked `.i` files use the `TIndexedFile` constructor with a
 **16-byte stride** (= 0x10), distinct from heroes' 40-byte stride.
-Each record holds `(frame_count, field_4, b_offset, reserved)`;
-total of 679 anim classes across the six files. Full spec in
+Each record holds `(image_bank, frame_count, frame_offset, reserved)`;
+there are 10,626 animation classes across the seven files. Full spec in
 [`apacked.md`](apacked.md).
 
 ```text
+apackedi.0 9947  entries
 APackedi.1  283  entries
 APackedi.2  282
 APackedi.3   15
@@ -61,11 +62,11 @@ APackedi.4    5
 APackedi.5    2
 APackedi.6   92
 ──────────
-total       679 animation classes
+total     10626 animation classes
 ```
 
-Each class indexes into CPacked.1c's 78,853 frames; on average ~410
-frames per animation class.
+Each frame index is local to the CPacked image bank in its owning
+APackedi record.
 
 ## Collide family — collision masks
 

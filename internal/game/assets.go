@@ -11,6 +11,7 @@ import (
 
 	"github.com/hajimehoshi/ebiten/v2"
 
+	"grono.dev/opendivine/pkg/assets/apacked"
 	"grono.dev/opendivine/pkg/assets/cpacked"
 )
 
@@ -50,6 +51,21 @@ func (g *Game) objectSprite(id int) *sprite {
 	spr := &sprite{img: ebitenImageFromObject(cell)}
 	g.objSprites[id] = spr
 	return spr
+}
+
+// openObjectAnimations reads the world-object animation table. APacked list
+// 1 stores frames whose images are in CPacked imagelist 0.
+func openObjectAnimations(gameDir string) (*apacked.File, error) {
+	base := fmt.Sprintf("%s/static/imagelists", gameDir)
+	index, err := os.ReadFile(fmt.Sprintf("%s/APackedi.1", base))
+	if err != nil {
+		return nil, err
+	}
+	frames, err := os.ReadFile(fmt.Sprintf("%s/APackedb.1", base))
+	if err != nil {
+		return nil, err
+	}
+	return apacked.Decode(index, frames)
 }
 
 // openImagelist parses CPackedi.<n>c + CPackedb.<n>c.
