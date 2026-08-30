@@ -22,3 +22,5 @@ technical detail in the answer.
 
 ## Entries
 
+- [game-loop.md](game-loop.md) — how the main game loop updates, renders, and
+  handles performance drops.
