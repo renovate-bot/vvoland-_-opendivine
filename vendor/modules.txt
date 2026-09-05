@@ -1,4 +1,4 @@
-# github.com/anchore/go-lzo v0.1.0
+# github.com/anchore/go-lzo v0.1.1
 ## explicit; go 1.24.0
 github.com/anchore/go-lzo
 # github.com/ebitengine/gomobile v0.0.0-20250923094054-ea854a63cce1
@@ -16,7 +16,7 @@ github.com/ebitengine/gomobile/internal/mobileinit
 # github.com/ebitengine/hideconsole v1.0.0
 ## explicit; go 1.18
 github.com/ebitengine/hideconsole
-# github.com/ebitengine/oto/v3 v3.4.0
+# github.com/ebitengine/oto/v3 v3.4.1
 ## explicit; go 1.24.0
 github.com/ebitengine/oto/v3
 github.com/ebitengine/oto/v3/internal/mux
@@ -35,8 +35,8 @@ github.com/google/go-cmp/cmp/internal/diff
 github.com/google/go-cmp/cmp/internal/flags
 github.com/google/go-cmp/cmp/internal/function
 github.com/google/go-cmp/cmp/internal/value
-# github.com/hajimehoshi/ebiten/v2 v2.9.9
-## explicit; go 1.24.0
+# github.com/hajimehoshi/ebiten/v2 v2.9.11
+## explicit; go 1.25.0
 github.com/hajimehoshi/ebiten/v2
 github.com/hajimehoshi/ebiten/v2/audio
 github.com/hajimehoshi/ebiten/v2/audio/internal/convert
@@ -93,21 +93,22 @@ github.com/jfreymuth/oggvorbis
 # github.com/jfreymuth/vorbis v1.0.2
 ## explicit; go 1.15
 github.com/jfreymuth/vorbis
-# golang.org/x/image v0.40.0
+# golang.org/x/image v0.45.0
 ## explicit; go 1.25.0
 golang.org/x/image/font
 golang.org/x/image/font/opentype
 golang.org/x/image/font/sfnt
 golang.org/x/image/math/fixed
 golang.org/x/image/vector
-# golang.org/x/sync v0.20.0
+# golang.org/x/sync v0.22.0
 ## explicit; go 1.25.0
 golang.org/x/sync/errgroup
-# golang.org/x/sys v0.36.0
-## explicit; go 1.24.0
+# golang.org/x/sys v0.47.0
+## explicit; go 1.25.0
+golang.org/x/sys/cpu
 golang.org/x/sys/unix
 golang.org/x/sys/windows
-# golang.org/x/text v0.37.0
+# golang.org/x/text v0.41.0
 ## explicit; go 1.25.0
 golang.org/x/text/encoding
 golang.org/x/text/encoding/charmap
