@@ -8,9 +8,16 @@
   "minimumReleaseAge": "3 days",
   "packageRules": [
     {
-      "description": "Group safe routine updates",
+      "description": "Group safe routine Go dependency updates",
+      "matchManagers": ["gomod"],
       "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
-      "groupName": "routine dependency updates"
+      "groupName": "routine Go dependency updates"
+    },
+    {
+      "description": "Group safe routine GitHub Actions updates",
+      "matchManagers": ["github-actions"],
+      "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
+      "groupName": "routine GitHub Actions updates"
     },
     {
       "description": "Allow gha-pin-diff to stay on semver tag instead of digest pinning",
