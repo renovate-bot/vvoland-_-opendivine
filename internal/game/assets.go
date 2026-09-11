@@ -56,12 +56,12 @@ func (g *Game) objectSprite(id int) *sprite {
 // openObjectAnimations reads the world-object animation table. APacked list
 // 1 stores frames whose images are in CPacked imagelist 0.
 func openObjectAnimations(gameDir string) (*apacked.File, error) {
-	base := fmt.Sprintf("%s/static/imagelists", gameDir)
-	index, err := os.ReadFile(fmt.Sprintf("%s/APackedi.1", base))
+	base := gameDir + "/static/imagelists"
+	index, err := os.ReadFile(base + "/APackedi.1")
 	if err != nil {
 		return nil, err
 	}
-	frames, err := os.ReadFile(fmt.Sprintf("%s/APackedb.1", base))
+	frames, err := os.ReadFile(base + "/APackedb.1")
 	if err != nil {
 		return nil, err
 	}
