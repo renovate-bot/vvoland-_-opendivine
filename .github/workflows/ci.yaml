@@ -13,6 +13,7 @@ permissions:
 jobs:
   lint:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
@@ -32,6 +33,7 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -47,3 +49,40 @@ jobs:
 
       - name: Run tests
         run: go test ./...
+
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Build binary
+        run: |
+          builder=ci-builder
+          cache_args=()
+          if [[ "$GITHUB_SERVER_URL" == "https://github.com" ]]; then
+            cache_args=(
+              --set "*.cache-from=type=gha,scope=ci-build"
+              --set "*.cache-to=type=gha,mode=max,scope=ci-build"
+            )
+          fi
+          docker buildx inspect "$builder" >/dev/null 2>&1 || docker buildx create --name "$builder"
+          docker buildx bake --builder "$builder" binary "${cache_args[@]}"
+
+  success:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs:
+      - lint
+      - test
+      - build
+    if: always()
+    steps:
+      - name: Check CI result
+        run: |
+          for result in ${{ join(needs.*.result, ' ') }}; do
+            if [[ "$result" != "success" ]]; then
+              exit 1
+            fi
+          done

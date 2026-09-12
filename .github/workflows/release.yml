@@ -13,6 +13,7 @@ on:
         type: string
 
 env:
+  BINARY_NAME: opendivine
   TAG: ${{ inputs.tag || github.ref_name }}
   REPOSITORY: ${{ github.repository }}
 
@@ -40,20 +41,30 @@ jobs:
             arch: amd64
             ext: .exe
     runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
+    timeout-minutes: 30
     env:
       NAME: opendivine-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.ext }}
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/tags/${{ env.TAG }}
 
       - name: Build binary
         run: |
-          docker buildx create --use
-          docker buildx bake binary \
+          builder=release-builder
+          cache_args=()
+          if [[ "$GITHUB_SERVER_URL" == "https://github.com" ]]; then
+            cache_args=(
+              --set "*.cache-from=type=gha,scope=${NAME}"
+              --set "*.cache-to=type=gha,mode=max,scope=${NAME}"
+            )
+          fi
+          docker buildx inspect "$builder" >/dev/null 2>&1 || docker buildx create --name "$builder"
+          docker buildx bake --builder "$builder" binary \
             --set "*.platform=${{ matrix.os }}/${{ matrix.arch }}" \
-            --set "*.cache-from=type=gha,scope=${NAME}" \
-            --set "*.cache-to=type=gha,mode=max,scope=${NAME}"
-          mv "./_build/opendivine${{ matrix.ext }}" "./_build/${NAME}"
+            "${cache_args[@]}"
+          mv "./_build/${{ env.BINARY_NAME }}${{ matrix.ext }}" "./_build/${NAME}"
           for file in ./_build/*.json; do
             mv "$file" "./_build/${NAME}.$(basename "$file")"
           done
@@ -83,6 +94,7 @@ jobs:
     name: Create release
     needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: write
     steps:
@@ -99,6 +111,7 @@ jobs:
           printf 'Uploading files:\n%s\n' "${files[*]}"
           gh release create "${{ env.TAG }}" \
             --repo "${{ env.REPOSITORY }}" \
+            --verify-tag \
             --title "${{ env.TAG }}" \
             --draft \
             --generate-notes \

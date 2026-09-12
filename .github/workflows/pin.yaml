@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - ".github/workflows/**"
+      - "**Dockerfile"
 
 permissions:
   contents: read
@@ -13,6 +14,7 @@ permissions:
 jobs:
   pin-diff:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: vvoland/gha-pin-diff@v1 # v1
