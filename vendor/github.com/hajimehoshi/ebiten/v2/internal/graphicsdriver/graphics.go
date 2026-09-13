@@ -15,9 +15,9 @@
 package graphicsdriver
 
 import (
-	"fmt"
 	"image"
 
+	"github.com/hajimehoshi/ebiten/v2/internal/color"
 	"github.com/hajimehoshi/ebiten/v2/internal/graphics"
 	"github.com/hajimehoshi/ebiten/v2/internal/shaderir"
 )
@@ -27,36 +27,29 @@ type DstRegion struct {
 	IndexCount int
 }
 
-type FillRule int
-
-const (
-	FillRuleFillAll FillRule = iota
-	FillRuleNonZero
-	FillRuleEvenOdd
-)
-
-func (f FillRule) String() string {
-	switch f {
-	case FillRuleFillAll:
-		return "FillRuleFillAll"
-	case FillRuleNonZero:
-		return "FillRuleNonZero"
-	case FillRuleEvenOdd:
-		return "FillRuleEvenOdd"
-	default:
-		return fmt.Sprintf("FillRule(%d)", f)
-	}
-}
-
 const (
 	InvalidImageID  = 0
 	InvalidShaderID = 0
 )
 
+// FlushMode specifies whether a command batch completes or presents a frame.
+type FlushMode int
+
+const (
+	// FlushModeIntermediate submits commands without completing the frame.
+	FlushModeIntermediate FlushMode = iota
+	// FlushModeEndFrame completes the frame without presenting it.
+	FlushModeEndFrame
+	// FlushModePresent completes and presents the frame.
+	FlushModePresent
+)
+
 type Graphics interface {
 	Initialize() error
+	ColorSpace() color.ColorSpace
 	Begin() error
-	End(present bool) error
+	// End ends a command batch with the given flush mode.
+	End(mode FlushMode) error
 	SetTransparent(transparent bool)
 	SetVertices(vertices []float32, indices []uint32) error
 	NewImage(width, height int) (Image, error)
@@ -68,7 +61,7 @@ type Graphics interface {
 	NewShader(program *shaderir.Program) (Shader, error)
 
 	// DrawTriangles draws an image onto another image with the given parameters.
-	DrawTriangles(dst ImageID, srcs [graphics.ShaderSrcImageCount]ImageID, shader ShaderID, dstRegions []DstRegion, indexOffset int, blend Blend, uniforms []uint32, fillRule FillRule) error
+	DrawTriangles(dst ImageID, srcs [graphics.ShaderSrcImageCount]ImageID, shader ShaderID, dstRegions []DstRegion, indexOffset int, blend Blend, uniforms []uint32) error
 }
 
 type Resetter interface {
@@ -95,11 +88,3 @@ type Shader interface {
 }
 
 type ShaderID int
-
-type ColorSpace int
-
-const (
-	ColorSpaceDefault ColorSpace = iota
-	ColorSpaceSRGB
-	ColorSpaceDisplayP3
-)

@@ -138,7 +138,7 @@ func (m *MusicManager) PlayMusic(label string, loop bool) error {
 	m.cur = pl
 	m.mu.Unlock()
 	if old != nil {
-		_ = old.Close()
+		old.PauseAndStopReading()
 	}
 	pl.Play()
 	return nil
@@ -152,7 +152,7 @@ func (m *MusicManager) Stop() {
 	m.cur = nil
 	m.mu.Unlock()
 	if cur != nil {
-		_ = cur.Close()
+		cur.PauseAndStopReading()
 	}
 }
 

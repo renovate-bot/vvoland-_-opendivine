@@ -69,7 +69,6 @@ type drawTrianglesCommand struct {
 	dstRegions  []graphicsdriver.DstRegion
 	shader      *Shader
 	uniforms    []uint32
-	fillRule    graphicsdriver.FillRule
 	firstCaller string
 }
 
@@ -136,7 +135,7 @@ func (c *drawTrianglesCommand) String() string {
 		shader += " (" + c.shader.name + ")"
 	}
 
-	str := fmt.Sprintf("draw-triangles: dst: %s <- src: [%s], num of dst regions: %d, num of indices: %d, blend: %s, fill rule: %s, shader: %s", dst, strings.Join(srcstrs[:], ", "), len(c.dstRegions), c.numIndices(), blend, c.fillRule, shader)
+	str := fmt.Sprintf("draw-triangles: dst: %s <- src: [%s], num of dst regions: %d, num of indices: %d, blend: %s, shader: %s", dst, strings.Join(srcstrs[:], ", "), len(c.dstRegions), c.numIndices(), blend, shader)
 	if c.firstCaller != "" {
 		str += "\n  first-caller: " + c.firstCaller
 	}
@@ -159,7 +158,7 @@ func (c *drawTrianglesCommand) Exec(commandQueue *commandQueue, graphicsDriver g
 		imgs[i] = src.image.ID()
 	}
 
-	return graphicsDriver.DrawTriangles(c.dst.image.ID(), imgs, c.shader.shader.ID(), c.dstRegions, indexOffset, c.blend, c.uniforms, c.fillRule)
+	return graphicsDriver.DrawTriangles(c.dst.image.ID(), imgs, c.shader.shader.ID(), c.dstRegions, indexOffset, c.blend, c.uniforms)
 }
 
 func (c *drawTrianglesCommand) NeedsSync() bool {
@@ -184,7 +183,7 @@ func (c *drawTrianglesCommand) setVertices(vertices []float32) {
 
 // CanMergeWithDrawTrianglesCommand returns a boolean value indicating whether the other drawTrianglesCommand can be merged
 // with the drawTrianglesCommand c.
-func (c *drawTrianglesCommand) CanMergeWithDrawTrianglesCommand(dst *Image, srcs [graphics.ShaderSrcImageCount]*Image, vertices []float32, blend graphicsdriver.Blend, shader *Shader, uniforms []uint32, fillRule graphicsdriver.FillRule) bool {
+func (c *drawTrianglesCommand) CanMergeWithDrawTrianglesCommand(dst *Image, srcs [graphics.ShaderSrcImageCount]*Image, vertices []float32, blend graphicsdriver.Blend, shader *Shader, uniforms []uint32) bool {
 	if c.shader != shader {
 		return false
 	}
@@ -198,12 +197,6 @@ func (c *drawTrianglesCommand) CanMergeWithDrawTrianglesCommand(dst *Image, srcs
 		return false
 	}
 	if c.blend != blend {
-		return false
-	}
-	if c.fillRule != fillRule {
-		return false
-	}
-	if c.fillRule != graphicsdriver.FillRuleFillAll && mightOverlapDstRegions(c.vertices, vertices) {
 		return false
 	}
 	return true
@@ -223,27 +216,12 @@ func dstRegionFromVertices(vertices []float32) (minX, minY, maxX, maxY float32) 
 	for i := 0; i < len(vertices); i += graphics.VertexFloatCount {
 		x := vertices[i]
 		y := vertices[i+1]
-		if x < minX {
-			minX = x
-		}
-		if y < minY {
-			minY = y
-		}
-		if maxX < x {
-			maxX = x
-		}
-		if maxY < y {
-			maxY = y
-		}
+		minX = min(minX, x)
+		minY = min(minY, y)
+		maxX = max(maxX, x)
+		maxY = max(maxY, y)
 	}
 	return
-}
-
-func mightOverlapDstRegions(vertices1, vertices2 []float32) bool {
-	minX1, minY1, maxX1, maxY1 := dstRegionFromVertices(vertices1)
-	minX2, minY2, maxX2, maxY2 := dstRegionFromVertices(vertices2)
-	const margin = 1
-	return minX1 < maxX2+margin && minX2 < maxX1+margin && minY1 < maxY2+margin && minY2 < maxY1+margin
 }
 
 // writePixelsCommand represents a command to replace pixels of an image.
@@ -273,10 +251,7 @@ func (c *writePixelsCommand) Exec(commandQueue *commandQueue, graphicsDriver gra
 	args := make([]graphicsdriver.PixelsArgs, 0, len(c.args))
 	for _, a := range c.args {
 		pix, f := a.pixels.GetAndRelease()
-		// A finalizer is executed when flushing the queue at the end of the frame.
-		// At the end of the frame, the last command is rendering triangles onto the screen,
-		// so the bytes are already sent to GPU and synced.
-		// TODO: This might be fragile. When is the better time to call finalizers by a command queue?
+		// Keep upload bytes alive until the frame's commands have been submitted.
 		commandQueue.addFinalizer(f)
 		args = append(args, graphicsdriver.PixelsArgs{
 			Pixels: pix,
@@ -438,4 +413,21 @@ func MaxImageSize(graphicsDriver graphicsdriver.Graphics) int {
 		size = graphicsDriver.MaxImageSize()
 	}, true)
 	return size
+}
+
+// FinishForcedFrame waits for a frame forced while the game loop is blocked to finish.
+// If the graphics driver doesn't have an API to wait, FinishForcedFrame does nothing.
+func FinishForcedFrame(graphicsDriver graphicsdriver.Graphics) error {
+	f, ok := graphicsDriver.(interface{ FinishForcedFrame() error })
+	if !ok {
+		return nil
+	}
+
+	// Run this on the render thread so that it is ordered after the frame's flush, which can be
+	// asynchronous.
+	var err error
+	runOnRenderThread(func() {
+		err = f.FinishForcedFrame()
+	}, true)
+	return err
 }
